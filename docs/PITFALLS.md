@@ -933,3 +933,41 @@ python -c "import xml.dom.minidom; xml.dom.minidom.parse(r'app/src/pub/AndroidMa
 直接用 Python 的 `xml.dom.minidom`（这台机器上现成可用，`ffmpeg` 那次也是同样思路找的替代工具）
 跑一遍拿行列号。构建工具链对第三方文件的报错质量普遍很差，绕过它、用专门的解析器去问，比在它给的
 信息里硬猜快得多。顺带记住 XML 注释的这条限制：**画分隔线用 `=` 不要用 `-`**。
+
+---
+
+## 想让 git 历史"干净"，删文件必须在 `git init` 之前——晚一步就永远留在历史里
+
+**现象**：公开版（`F:\gkd-public`）刻意不复制私人版的 `.git`，就是为了让历史里不存在"去广告""虚拟
+定位"的任何源码（否则 `git log -p` 一把就能全还原，等于没删）。建仓时也确实先删源码再
+`git init`。但验证备份 bundle 能不能还原时顺手查了一下历史，发现里面**仍然躺着三个被删功能的
+文件**：`app/src/test/.../mockloc/MockLocationCoordTransformTest.kt`（坐标纠偏算法）、
+`app/src/main/aidl/.../shizuku/CommandResult.aidl`、`IUserService.aidl`。
+
+**根因**：删除动作分了两批，中间隔着 `git init`。第一批（`mockloc/` 包、`a11y/`、`MainActivity` 等
+主体源码）在建仓前删的，干净；第二批是**编译报错之后才发现需要删的**——单元测试是跑测试时才暴露，
+AIDL 是 `assembleGkdDebug` 阶段 javac 报"找不到 CommandResult"才暴露。这两批之间已经
+`git init` + 首次提交了，于是第二批文件"先被提交进历史、再被删除"，`git log` 里永久留档。
+
+**怎么定位出来的**：不是靠肉眼 review，是**验证备份时顺手做的反向检查**——
+`git log --all --oneline -- "**/*mockloc*"`。当时的目的只是确认 bundle 能还原，结果发现"公开版历史里
+mockloc 出现 2 次、shizuku 出现 2 次"，跟预期的 0 次对不上，再用
+`git log --diff-filter=A --name-only` 才定位到具体是哪三个文件。**如果只验证"bundle 能不能 clone
+出来"，这个问题永远发现不了。**
+
+**修法**：仓库很新（7 条提交）且没有远程，直接用孤儿分支重建成单条干净历史：
+```bash
+git checkout --orphan clean-main && git add -A && git commit -m "..."
+git branch -D master && git branch -m master
+git gc --prune=now          # 让旧对象真正落盘消失，否则 bundle 里可能还带着
+```
+原来 7 条提交的说明内容并入新的单条提交信息，实质信息没丢（而且 `docs/DECISIONS.md` 本来就有完整
+记录）。重建后重新生成 bundle 并再次反向核对，确认 0 次。
+
+**教训**：
+1. **"物理删除 + 干净历史"这类需求，删除必须一次性删干净再建仓。** 而"一次性删干净"实际上做不到
+   ——编译器会分好几轮才把依赖暴露完（Kotlin 编译一轮、javac/AIDL 又一轮、单元测试再一轮）。所以
+   正确顺序是：**先把项目完整编译通过（含测试），确认再没有要删的，最后才 `git init`**。
+2. **备份验证不能只验"能不能还原"，还要验"还原出来的东西对不对"。** 这次就是靠"还原后反查历史里
+   有没有不该有的东西"才发现问题的。同理，以后验 APK 也不能只看"能不能装"，要解包核对。
+3. 重建历史后记得 `git gc --prune=now`，否则悬空对象可能仍被打进 bundle。
