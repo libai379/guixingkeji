@@ -1,3 +1,11 @@
+/*
+ * 电话拦截的主界面：申请「来电筛选」角色 + 进入规则管理/诊断日志两个子屏。
+ *
+ * 注意这里的"多屏"是用 `showRules`/`showLog` 两个布尔值做的**整屏切换**，不是真正的导航栈。
+ * 因此**必须配 `BackHandler`**，否则系统返回键会直接关掉整个 Activity 退回启动页，而不是退回
+ * 上一屏——这是真机实测发现的 bug，且只测应用内的返回箭头测不出来（那是显式绑定的 onClick）。
+ * 本项目里凡是这种"布尔状态切屏"的写法都要照此处理，见 docs/PITFALLS.md 同名条目。
+ */
 package li.songe.gkd.callscreen
 
 import android.app.role.RoleManager

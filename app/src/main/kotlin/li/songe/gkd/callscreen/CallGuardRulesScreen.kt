@@ -1,3 +1,13 @@
+/*
+ * 电话拦截的规则管理页：切换黑/白名单模式 + 增删当前模式下的号码前缀。
+ *
+ * 关键设计：黑名单和白名单**各自维护独立的前缀列表**（`blacklistPrefixes`/`whitelistPrefixes`，
+ * 见 CallGuardStore.kt），不是共用一份再打标签。这样切换模式不会清空或污染对方的规则——是刻意
+ * 避开"玻璃预设列表不按场景隔离导致跨屏串扰"那个已经踩过的坑。
+ *
+ * 号码匹配走前缀而不是全等：座机区号、号段这类场景都需要前缀匹配。标准化逻辑（去空格/横杠/
+ * +86 前缀）在 CallGuardStore.kt 里，不假设一定是 11 位手机号。
+ */
 package li.songe.gkd.callscreen
 
 import androidx.compose.foundation.layout.Arrangement

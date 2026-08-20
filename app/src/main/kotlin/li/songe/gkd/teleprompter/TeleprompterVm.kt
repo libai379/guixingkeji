@@ -1,3 +1,12 @@
+/*
+ * 提词器的 ViewModel：文档/章节的增删改、结构操作（合并、拆分、段落升级为章节）、撤销。
+ *
+ * 所有写操作最终都落到 `updateTeleprompterLibrary { }`（TeleprompterStore.kt），它整体替换整个
+ * StateFlow。结构操作会 bump 章节的 `structureVersion`，编辑页据此重新水合对应章节的富文本状态。
+ *
+ * 注意时序陷阱：防抖自动保存可能在一次合并/拆分**之后**才触发，把合并前的旧内容写回去。编辑页
+ * 那边靠"`LaunchedEffect` 被新 key 取消重启"隐式丢弃了在途的旧防抖，改动这一块时别破坏这个性质。
+ */
 package li.songe.gkd.teleprompter
 
 import androidx.lifecycle.ViewModel

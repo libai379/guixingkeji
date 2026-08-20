@@ -1,3 +1,26 @@
+/*
+ * 提词器编辑页 —— 全项目最大的一个文件，也是 bug 最集中的地方，改之前先读这段。
+ *
+ * 它同时装着三样东西：①编辑/查看页本体（章节列表、正文富文本、副标题）；②设置面板
+ * `TeleprompterSettingsWindow`（正文/副标题/播放页/当前面板液态效果/更多液态效果 五个分区）；
+ * ③大纲触发器 `OutlineScrubTrigger`（编辑页和播放页共用同一份实现，播放页从这里引用）。
+ *
+ * 几个**反直觉但有意为之**的设计，改动前务必知道：
+ * - 章节用普通 `Column` + `verticalScroll` 渲染，**故意不用 `LazyColumn`**：Compose 的文字选中
+ *   手柄拖动跟 LazyColumn 的滚动没有联动（见 JetBrains/compose-multiplatform#3333），手柄拖出
+ *   可视区不会自动滚动，章节被回收后手柄直接消失。代价是全部章节一次性组合，这是接受的取舍。
+ * - 因为上一条，任何影响正文排版的设置（字号/缩放/行距/宽度）一变就是**全文重排**。设置面板里
+ *   那几个滑块因此接了 `onBodyDragStart`/`onBodyDragEnd` 做视口裁剪：拖动期间只有屏幕内章节实时
+ *   重排，屏幕外的冻结到松手再补。
+ * - 只有当前聚焦的那一个章节用可编辑的 `BasicRichTextEditor`，其余渲染成只读 `Text` + 一层
+ *   `scaledForDisplay()` 显示级缩放（见 TeleprompterTextScaling.kt，那份结果**绝不能回灌**给
+ *   可编辑状态，会把放大后的字号当成真实字号存下去）。
+ * - 自动保存的防抖 `LaunchedEffect` key 在 `state.annotatedString.text`（纯文本）上，**不是**整个
+ *   AnnotatedString——后者在纯移动光标时也会变，曾导致每拖一下选区手柄就触发一次全量序列化+持久化。
+ * - 设置面板是同一棵组合树里的覆盖层，不是 Dialog（Dialog 采样不到 backdrop，玻璃会变空白板）。
+ *
+ * 相关坑的完整记录见 docs/PITFALLS.md。
+ */
 package li.songe.gkd.teleprompter
 
 import android.content.res.Configuration

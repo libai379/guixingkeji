@@ -1,3 +1,14 @@
+/*
+ * **全项目液态玻璃效果的唯一入口**：`Modifier.tunedGlass()`。
+ *
+ * 业务代码一律通过它使用玻璃效果，不要直接调 backdrop 库的 `drawBackdrop()`/`lens()`。原因：
+ * 这里统一改用了本项目修过的 `patchedLens()`（见 PatchedLens.kt），补上了库里色散着色器缺失的
+ * 采样坐标 clamp——窄长面板（播放控制栏、大纲抽屉、滑块）用原版 `lens()` 会花屏甚至原生崩溃。
+ * 收口在这一处，新加的面板自动受益，不用每个都单独操心。
+ *
+ * `tunedGlass()` 是 `@Composable` 且内部用 `rememberUpdatedState` 读活值：绘制闭包里拿到的必须是
+ * 最新参数，否则会冻结成组合期的快照——表现为"拖动调参滑块时能变，松手后画面停在半路"。
+ */
 package li.songe.gkd.glasstuning
 
 import androidx.compose.foundation.shape.RoundedCornerShape

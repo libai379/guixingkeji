@@ -1,3 +1,15 @@
+/*
+ * 跨屏共享的背景系统：默认 / 纯色 / 渐变 / 图片 四种模式。
+ *
+ * 提词器文档库和启动页共用这一份实现（两边各自持久化：`libraryBackground` 和
+ * `launcherBackgroundFlow`）。"默认"模式的样子由调用方通过 `defaultContent` 插槽决定——文档库是
+ * 纯色，启动页是原来那套动效光斑，所以升级成共享组件之后各屏观感不变。
+ *
+ * 两个容易踩的点：
+ * - `layerBackdrop` 必须打在**真正画东西的那个节点**上，不能打在外面包一层的 Box，否则捕获到空白。
+ * - 图片模式下，可见层和捕获层用**同一份** colorFilter/alpha，只有可见层多一个 blur；否则透明度
+ *   调低时会透出一张没调过色的原图。
+ */
 package li.songe.gkd.glassui
 
 import android.graphics.BitmapFactory

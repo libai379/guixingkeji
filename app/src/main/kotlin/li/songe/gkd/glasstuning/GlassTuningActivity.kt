@@ -1,3 +1,14 @@
+/*
+ * 液态玻璃调参面板。**一套实现，四个入口**——区别只在于传进来的 `restrictToTargets` 不同：
+ * 启动页/外观、提词器文档库、提词器编辑页、提词器播放页各自只看得到自己那几个 `GlassTarget`。
+ *
+ * 用 `restrictedIntent(context, targets)` 打开。`restrictToTargets != null` 同时也是"显示预设区"
+ * 的开关，所以四个入口都自带预设功能。
+ *
+ * 预设按 `paramsByTarget.keys` 与传入 targets 集合**精确匹配**过滤（见 GlassPresetStore.kt）：
+ * 底层是一份不分场景的扁平列表，不过滤的话，在提词器存的预设会出现在启动页的列表里，点"应用"
+ * 还会因为找不到对应 target 而静默不生效。
+ */
 package li.songe.gkd.glasstuning
 
 import android.content.Context

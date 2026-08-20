@@ -1,3 +1,15 @@
+/*
+ * 提词器的持久化入口。
+ *
+ * 全部文稿（正文 HTML、章节结构、每篇的样式设置）存在**一个** DataStore key 里：
+ * `teleprompter_library`，落盘位置 `filesDir/store/`。这意味着：
+ * - 清除应用数据 = 文稿全没，且只存在手机本地，没有云备份；
+ * - `applicationId` 一变（私人版 vs 公开版）就是两个独立的存储，数据不互通。
+ * 所以这里提供了导出单篇/导出整库的功能，要提醒用户定期用。
+ *
+ * 写入一律走 `updateTeleprompterLibrary { }`，它整体替换 StateFlow。注意这个替换成本不低——
+ * 高频调用（比如绑在拖动手势上）会引发大范围重组，历史上造成过两次真实卡顿 bug。
+ */
 package li.songe.gkd.teleprompter
 
 import android.app.Activity
