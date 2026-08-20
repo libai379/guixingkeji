@@ -50,6 +50,10 @@ NEVER_COPY=(
   "app/src/main/AndroidManifest.xml"
   # 公开版 applicationId 不同，且移除了 Shizuku 依赖
   "app/build.gradle.kts"
+  # 给人看的说明书：私人版讲 5 个功能，公开版讲 3 个功能且带权限说明，两边内容不同
+  "README.md"
+  # AI 必读：两边开头的"你在哪个工程"和同步方向说明是相反的
+  "CLAUDE.md"
 
   # ── 下面这些是"公开版已删除"的文件。它们躺在被整目录同步的路径里，如果不显式挡住，
   #    这个脚本会把删掉的功能又原样搬回公开版。2026-08-20 首次试运行就撞上了 mock-location.html。

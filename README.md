@@ -1,78 +1,74 @@
-# gkd
+# 癸月科技
 
-<p align="center">
-<a href="https://gkd.li/"><img src="https://e.gkd.li/2a0a7787-f2dd-4529-a885-93f3b8c857c3" alt="GKD.LI" width="40%" /></a>
-</p>
+一个安卓工具应用，把几件平时零散要用的事整合到一起。基于开源项目
+[GKD](https://github.com/gkd-kit/gkd) 二次开发。
 
-基于 [高级选择器](https://gkd.li/guide/selector) + [订阅规则](https://gkd.li/guide/subscription) + [快照审查](https://github.com/gkd-kit/inspect) 的自定义屏幕点击 Android 应用
+---
 
-通过自定义规则，在指定界面，满足指定条件(如屏幕上存在特定文字)时，点击特定的节点或位置或执行其他操作
+## 三个功能
 
-- **快捷操作**
+| 功能 | 做什么 |
+|---|---|
+| **定位修改** | 修改照片、视频文件里记录的 GPS 位置。选文件 → 地图选点 → 保存。建议先备份原文件。 |
+| **提词器** | 拍摄、直播用的滚动提词。支持导入 Word 文稿，按章节编辑，播放时全屏滚动，字号行距滚速配色都能调，横竖屏都行。 |
+| **电话拦截** | 按号码前缀拦截来电，支持黑名单和白名单两种模式。需要授予"来电筛选"权限。 |
 
-  帮助你简化一些重复的流程, 如某些软件自动确认电脑登录
+打开应用后是一个功能列表，点进去就能用。右上角齿轮可以改外观（背景、玻璃质感）。
+底部那行小字点开是"关于/使用说明"。
 
-- **跳过流程**
-
-  某些软件可能在启动时存在一些烦人的流程, 这个软件可以帮助你点击跳过这个流程
-
-## 免责声明
-
-**本项目遵循 [GPL-3.0](/LICENSE) 开源，项目仅供学习交流，禁止用于商业或非法用途**
+---
 
 ## 安装
 
-<a href="https://gkd.li/guide/"><img src="https://e.gkd.li/f23b704d-d781-494b-9719-393f95683b89" alt="Download from GKD.LI" width="32%" /></a><a href="https://play.google.com/store/apps/details?id=li.songe.gkd"><img src="https://e.gkd.li/f63fabeb-0342-4961-a46d-cac61b0f8856" alt="Download from Google Play" width="32%" /></a><a href="https://github.com/gkd-kit/gkd/releases"><img src="https://e.gkd.li/c1ef2bb9-7472-46d5-9806-81b4c37e5b4d" alt="Download from GitHub releases" width="32%" /></a>
+直接装 APK：传到手机后点开安装，系统提示"未知来源"时允许即可。
+**升级直接覆盖安装**，提词器文稿、拦截规则、各项设置都会保留。
 
-如遇问题请先查看 [疑难解答](https://gkd.li/guide/faq)
+⚠️ **提词器的文稿只存在手机本地**，没有云端备份。清除应用数据或换手机就没了，重要的稿子记得用
+应用内的导出功能存一份。
 
-## 截图
+---
 
-|                                                               |                                                               |                                                               |                                                               |
-| ------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------- |
-| ![img](https://e.gkd.li/1e8934c1-2303-4182-9ef2-ad4c46882570) | ![img](https://e.gkd.li/01f230d7-9b89-4314-b573-38bd233d22f9) | ![img](https://e.gkd.li/dfa0a782-b21e-473a-96e4-eef27773b71b) | ![img](https://e.gkd.li/641decd1-2e60-4e95-b78c-df38d1d98a4d) |
-| ![img](https://e.gkd.li/b216b703-d3de-4798-81ba-29e0ae63264f) | ![img](https://e.gkd.li/76c25ac9-4189-47cd-b40b-b9e72c79b584) | ![img](https://e.gkd.li/7288502e-808b-4d9a-88b5-1085abaa0d46) | ![img](https://e.gkd.li/aa974940-7773-409a-ae84-3c02fee9c770) |
+## 权限说明
 
-## 订阅
+本应用只申请这几项权限，都跟上面三个功能直接相关：
 
-GKD **默认不提供规则**，需自行添加本地规则，或者通过订阅链接的方式获取远程规则
+| 权限 | 用途 |
+|---|---|
+| 网络 | 提词器/定位修改页面加载地图瓦片等资源 |
+| 通知 | 功能状态提示 |
+| 存储（仅 Android 9 及以下） | 读写要改 GPS 的照片视频文件 |
+| 忽略电池优化 | 防止电话拦截被系统后台清理 |
 
-也可通过 [subscription-template](https://github.com/gkd-kit/subscription-template) 快速构建自己的远程订阅
+**来电筛选**权限在你首次使用电话拦截功能时由系统弹窗单独询问，不用可以不授予。
 
-第三方订阅列表可在 <https://github.com/topics/gkd-subscription> 查看
+本应用**不申请**模拟位置、修改系统安全设置、读取已安装应用列表、悬浮窗等权限。
 
-要加入此列表, 需点击仓库主页右上角设置图标后在 Topics 中添加 `gkd-subscription`
+---
 
-<details>
-<summary>示例图片 - 添加至 Topics (点击展开)</summary>
+## 常见问题
 
-![image](https://e.gkd.li/9e340459-254f-4ca0-8a44-cc823069e5a7)
+**被拦截的来电，通话记录里还是有？**
+这是正常的，也是有意保留的——这样你能事后知道有电话被拦过。
 
-</details>
+**黑名单和白名单会互相影响吗？**
+不会。两种模式各自维护独立的号码前缀列表，切换模式不会清空另一边。
 
-## 选择器
+**提词器里从 Word 导入的文字，调"默认字号"没反应？**
+Word 文档自带字号，"默认字号"只对没有明确字号的文字生效。用"整体缩放"调。
 
-一个类似 CSS 选择器的选择器, 能联系节点上下文信息, 更容易也更精确找到目标节点
+**提词器播放时字太小/滚太快？**
+编辑页右上角齿轮进设置面板，字号、整体缩放、行距、滚动速度都能调，改完立即生效。
 
-<https://gkd.li/guide/selector>
+---
 
-[@[vid=\"menu\"] < [vid=\"menu_container\"] - [vid=\"dot_text_layout\"] > [text^=\"广告\"]](https://i.gkd.li/i/14881985?gkd=QFt2aWQ9Im1lbnUiXSA8IFt2aWQ9Im1lbnVfY29udGFpbmVyIl0gLSBbdmlkPSJkb3RfdGV4dF9sYXlvdXQiXSA-IFt0ZXh0Xj0i5bm_5ZGKIl0)
+## 开发者
 
-<details>
-<summary>示例图片 - 选择器路径视图 (点击展开)</summary>
+癸星人
 
-[![image](https://e.gkd.li/a2ae667b-b8c5-4556-a816-37743347b972)](https://i.gkd.li/i/14881985?gkd=QFt2aWQ9Im1lbnUiXSA8IFt2aWQ9Im1lbnVfY29udGFpbmVyIl0gLSBbdmlkPSJkb3RfdGV4dF9sYXlvdXQiXSA-IFt0ZXh0Xj0i5bm_5ZGKIl0)
+## 关于开源协议
 
-</details>
+本项目基于 GKD（GPL-3.0）二次开发。
 
-## 捐赠
+---
 
-如果 GKD 对你有用, 可以通过以下链接支持该项目
-
-<https://github.com/lisonge/sponsor>
-
-或前往 [Google Play](https://play.google.com/store/apps/details?id=li.songe.gkd) 给个好评
-
-## Star History
-
-[![Stargazers over time](https://starchart.cc/gkd-kit/gkd.svg?variant=adaptive)](https://starchart.cc/gkd-kit/gkd)
+*给开发者/AI 看的技术文档在 `CLAUDE.md` 和 `docs/`，这份 README 只讲怎么用。*
