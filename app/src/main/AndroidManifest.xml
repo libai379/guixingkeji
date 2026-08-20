@@ -84,13 +84,10 @@
             </intent-filter>
         </activity>
 
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <!-- 公开版：原本这里声明 rikka.shizuku.ShizukuProvider。Shizuku 只服务于已删除的 GKD
+             内核，依赖已从 build.gradle.kts 移除，类不在包里了；而 ContentProvider 是应用启动时
+             由系统实例化的，声明了却找不到类会直接 ClassNotFoundException 崩在启动阶段（连界面
+             都到不了）。所以这条声明必须跟着依赖一起删。 -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"

@@ -9,6 +9,11 @@
 #
 # 用法：  bash sync-to-public.sh          # 预览会同步什么，不实际写入
 #         bash sync-to-public.sh --apply  # 真正执行
+#         bash sync-to-public.sh --check  # 只做一致性检查，有漂移就非 0 退出（可挂进发布流程）
+#
+# 为什么要 --check：同步是单向的（私人版 -> 公开版），它只保证"推过去"，不保证"没人直接改过
+# 公开版"。后一种情况不会报错，只会在某天两边行为对不上时才被发现，而且大概率是别人先撞见。
+# --check 就是专门用来在出包前问一句"两边现在到底一不一致"。
 #
 # 执行后记得到 F:\gkd-public 编译一次确认，再各自出包。
 
@@ -17,7 +22,9 @@ set -euo pipefail
 SRC="/f/gkd-fork"
 DST="/f/gkd-public"
 APPLY=0
+CHECK=0
 [ "${1:-}" = "--apply" ] && APPLY=1
+[ "${1:-}" = "--check" ] && CHECK=1
 
 # ── 绝对不能同步的文件（两边故意不同）────────────────────────────────────────
 # 每一条都写清楚"为什么不同"，以后要动这个列表时不用重新考古。
@@ -98,9 +105,13 @@ copy_one() {
   fi
 }
 
-echo "同步 私人版 -> 公开版$([ "$APPLY" = 1 ] && echo "（实际执行）" || echo "（预览，加 --apply 才真正写入）")"
+if [ "$CHECK" = "1" ]; then
+  echo "一致性检查：私人版 vs 公开版"
+else
+  echo "同步 私人版 -> 公开版$([ "$APPLY" = 1 ] && echo "（实际执行）" || echo "（预览，加 --apply 才真正写入）")"
+fi
 echo
-echo "有差异、将被同步的文件："
+echo "共用文件中两边不一致的："
 for d in "${SYNC_DIRS[@]}"; do
   [ -d "$SRC/$d" ] || continue
   while IFS= read -r f; do copy_one "${f#$SRC/}"; done < <(find "$SRC/$d" -type f)
@@ -110,6 +121,33 @@ for f in "${SYNC_FILES[@]}"; do copy_one "$f"; done
 [ "$changed" = 0 ] && echo "  （无差异，两边已一致）"
 echo
 echo "跳过（两边故意不同，绝不能覆盖）：${#NEVER_COPY[@]} 个文件，见脚本内 NEVER_COPY 注释"
+
+# 只在公开版存在、私人版没有的共用文件 —— 说明有人直接往公开版加了东西，同步脚本永远不会发现它
+extra=0
+for d in "${SYNC_DIRS[@]}"; do
+  [ -d "$DST/$d" ] || continue
+  while IFS= read -r f; do
+    rel="${f#$DST/}"
+    is_never_copy "$rel" && continue
+    if [ ! -f "$SRC/$rel" ]; then
+      [ "$extra" = 0 ] && { echo; echo "只存在于公开版的共用文件（私人版没有，需人工确认是不是漏同步回去了）："; }
+      extra=$((extra+1)); echo "  $rel"
+    fi
+  done < <(find "$DST/$d" -type f)
+done
+
+if [ "$CHECK" = "1" ]; then
+  echo
+  if [ "$changed" = 0 ] && [ "$extra" = 0 ]; then
+    echo "一致性检查通过：共用代码两边完全一致。"
+    exit 0
+  fi
+  echo "!! 一致性检查未通过：$changed 个文件内容不同，$extra 个文件只在公开版存在。"
+  echo "   内容不同 -> 跑 --apply 把私人版推过去（确认私人版才是最新的）"
+  echo "   只在公开版 -> 人工判断：是该删掉，还是该同步回私人版"
+  exit 1
+fi
+
 if [ "$APPLY" = "1" ] && [ "$changed" != 0 ]; then
   echo
   echo "下一步：cd /f/gkd-public && ./gradlew.bat :app:assembleGkdDebug 验证编译"

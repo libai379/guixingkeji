@@ -34,6 +34,7 @@
 cd /f/gkd-fork
 bash sync-to-public.sh            # 先预览会同步什么
 bash sync-to-public.sh --apply    # 确认后执行
+bash sync-to-public.sh --check    # 只检查一致性，有漂移就非 0 退出（出包前跑）
 cd /f/gkd-public && ./gradlew.bat :app:assembleGkdDebug   # 必须编译验证
 ```
 
