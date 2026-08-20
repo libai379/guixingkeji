@@ -87,8 +87,6 @@ android {
         compose = true
         aidl = true
         resValues = true
-        // 2026-08-20 - 私人版/公开版拆分需要 BuildConfig.HAS_AD_SKIP 等编译期开关，见 productFlavors。
-        buildConfig = true
     }
 
     val gkdSigningConfig = if (project.hasProperty("GKD_STORE_FILE")) {
