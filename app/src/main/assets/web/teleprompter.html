@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📜 提词器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,'Microsoft YaHei','PingFang SC',sans-serif;background:#0a0a0a;color:#f0f0f0;overflow:hidden;height:100vh;height:100dvh}
+
+/* ── EDITOR ── */
+#editor{display:flex;flex-direction:column;height:100vh;height:100dvh}
+.ed-header{display:flex;align-items:center;gap:10px;padding:11px 14px;background:#111;border-bottom:1px solid #1e1e1e;flex-shrink:0}
+.back-link{color:#4CAF50;text-decoration:none;font-size:13px;white-space:nowrap}
+.ed-header h2{font-size:15px;font-weight:600;flex:1}
+.ed-body{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:14px}
+.sec-title{font-size:11px;color:#555;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+
+textarea#scriptInput{width:100%;min-height:130px;background:#141414;border:1px solid #2a2a2a;border-radius:10px;color:#f0f0f0;font-size:15px;padding:11px 12px;resize:vertical;font-family:inherit;outline:none;line-height:1.6}
+textarea#scriptInput:focus{border-color:#4CAF50}
+.stats-row{display:flex;gap:14px;font-size:12px;color:#555;margin-top:4px}
+
+/* Script mgmt */
+.script-actions{display:flex;gap:7px}
+.script-actions input{flex:1;background:#141414;border:1px solid #2a2a2a;border-radius:8px;color:#f0f0f0;font-size:13px;padding:7px 10px;outline:none}
+.script-actions input:focus{border-color:#4CAF50}
+.btn-s{padding:7px 13px;border:none;border-radius:8px;font-size:13px;cursor:pointer;background:#222;color:#ccc;white-space:nowrap;transition:background .15s}
+.btn-s:active{background:#2e2e2e}
+.btn-s.pri{background:#4CAF50;color:#fff}
+.btn-s.pri:active{background:#45a049}
+.script-list{display:none;flex-direction:column;gap:4px;max-height:130px;overflow-y:auto;margin-top:8px}
+.script-item{display:flex;align-items:center;background:#141414;border-radius:8px;padding:7px 10px;gap:8px;cursor:pointer}
+.script-item:active{background:#1e1e1e}
+.si-name{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.si-date{font-size:11px;color:#444;white-space:nowrap}
+.si-del{color:#444;font-size:17px;cursor:pointer;padding:0 4px;line-height:1}
+.si-del:active{color:#ff5555}
+.no-scripts{font-size:13px;color:#444;padding:6px 0}
+
+/* Settings controls */
+.setting-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.setting-row label{font-size:13px;color:#999;width:86px;flex-shrink:0}
+.setting-val{font-size:12px;color:#4CAF50;width:40px;text-align:right;flex-shrink:0}
+input[type=range]{flex:1;accent-color:#4CAF50}
+.opt-grp{display:flex;gap:6px;flex-wrap:wrap}
+.opt-btn{padding:5px 12px;border-radius:16px;border:1px solid #2a2a2a;background:#141414;color:#888;font-size:12px;cursor:pointer;transition:all .15s}
+.opt-btn.on{background:#4CAF50;color:#fff;border-color:#4CAF50}
+.color-row{display:flex;gap:8px;align-items:center}
+.swatch{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2px solid transparent;flex-shrink:0}
+.swatch.on{border-color:#fff}
+.color-txt{background:#141414;border:1px solid #2a2a2a;border-radius:6px;color:#f0f0f0;font-size:12px;padding:4px 8px;width:76px;outline:none;font-family:monospace}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0}
+.toggle-row label{font-size:13px;color:#ccc}
+.tog{position:relative;width:42px;height:23px;cursor:pointer;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0}
+.tog-track{position:absolute;inset:0;background:#2a2a2a;border-radius:12px;transition:.2s}
+.tog input:checked~.tog-track{background:#4CAF50}
+.tog-track::before{content:'';position:absolute;width:17px;height:17px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.tog input:checked~.tog-track::before{transform:translateX(19px)}
+.cd-row{display:flex;align-items:center;gap:8px;margin-top:6px}
+.cd-row label{font-size:12px;color:#888}
+.cd-row input[type=number]{width:52px;background:#141414;border:1px solid #2a2a2a;border-radius:6px;color:#f0f0f0;font-size:13px;padding:5px 7px;outline:none;text-align:center}
+
+/* Action bar */
+.action-bar{display:flex;gap:10px;padding:10px 14px;background:#111;border-top:1px solid #1e1e1e;flex-shrink:0}
+.act-btn{flex:1;padding:13px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+.act-btn.play{background:#4CAF50;color:#fff}
+.act-btn.play:active{background:#45a049}
+.act-btn.float{background:#0f2a18;color:#4CAF50;border:1px solid #4CAF50}
+.act-btn.float:active{background:#163820}
+
+/* ── COUNTDOWN ── */
+#cdOverlay{display:none;position:fixed;inset:0;z-index:200;background:#0a0a0a;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+#cdNum{font-size:96px;font-weight:700;color:#4CAF50;line-height:1}
+#cdText{font-size:15px;color:#666}
+
+/* ── PLAYER ── */
+#player{display:none;position:fixed;inset:0;z-index:100;overflow:hidden;touch-action:none}
+#playerBg{position:absolute;inset:0;background:#0a0a0a}
+
+/* Guide */
+.guide-glow{position:absolute;left:0;right:0;height:120px;top:calc(38% - 60px);background:linear-gradient(transparent,rgba(76,175,80,.04) 40%,rgba(76,175,80,.04) 60%,transparent);pointer-events:none;z-index:5}
+.guide-line{position:absolute;left:0;right:0;height:2px;background:rgba(76,175,80,.45);top:38%;pointer-events:none;z-index:6}
+
+/* Scroll area */
+#scrollWrap{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:4}
+#scrollInner{will-change:transform;padding-top:38vh;padding-bottom:62vh}
+#scrollText{white-space:pre-wrap;margin:0 auto;line-height:1.8}
+
+/* HUD top */
+.p-hud{position:absolute;top:0;left:0;right:0;padding:10px 14px;display:flex;align-items:center;gap:10px;z-index:20;background:linear-gradient(rgba(0,0,0,.75),transparent);transition:opacity .3s}
+.hud-timer{font-size:13px;font-family:monospace;color:#aaa}
+.hud-bar{flex:1;height:3px;background:rgba(255,255,255,.12);border-radius:2px}
+.hud-fill{height:100%;background:#4CAF50;border-radius:2px;transition:width .4s linear}
+
+/* Control bar bottom */
+.p-ctrl{position:absolute;bottom:0;left:0;right:0;padding:10px 14px 16px;background:linear-gradient(transparent,rgba(0,0,0,.88));z-index:20;display:flex;align-items:center;gap:10px;transition:opacity .3s}
+.c-btn{background:rgba(255,255,255,.1);border:none;color:#fff;border-radius:8px;padding:8px 13px;font-size:15px;cursor:pointer;transition:background .15s}
+.c-btn:active{background:rgba(255,255,255,.2)}
+.c-btn.danger{background:rgba(255,60,60,.18);color:#ff7070}
+.speed-lbl{font-size:13px;color:#4CAF50;min-width:32px;text-align:center}
+.seek-wrap{flex:1;height:22px;display:flex;align-items:center;cursor:pointer}
+.seek-track{width:100%;height:4px;background:rgba(255,255,255,.18);border-radius:2px}
+.seek-fill{height:100%;background:#4CAF50;border-radius:2px;width:0%}
+
+/* Done overlay */
+#doneOverlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,.82);align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:30}
+#doneOverlay h2{font-size:22px;color:#4CAF50}
+#doneOverlay button{padding:11px 24px;background:#4CAF50;color:#fff;border:none;border-radius:10px;font-size:15px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- ===== EDITOR ===== -->
+<div id="editor">
+  <div class="ed-header">
+    <h2>📜 提词器</h2>
+  </div>
+
+  <div class="ed-body">
+
+    <!-- 脚本内容 -->
+    <div>
+      <div class="sec-title">脚本内容</div>
+      <textarea id="scriptInput" placeholder="在此粘贴或输入提词内容…"></textarea>
+      <div class="stats-row">
+        <span id="charCount">0 字</span>
+        <span id="durEst">预计 0:00</span>
+      </div>
+    </div>
+
+    <!-- 脚本管理 -->
+    <div>
+      <div class="sec-title">脚本管理</div>
+      <div class="script-actions">
+        <input type="text" id="sNameInput" placeholder="脚本名称">
+        <button class="btn-s pri" onclick="saveScript()">保存</button>
+        <button class="btn-s" onclick="toggleScriptList()">列表</button>
+      </div>
+      <div class="script-list" id="scriptList"></div>
+    </div>
+
+    <!-- 显示设置 -->
+    <div>
+      <div class="sec-title">显示设置</div>
+      <div class="setting-row">
+        <label>字号</label>
+        <input type="range" id="rFontSize" min="16" max="80" value="32" oninput="setSetting('fontSize',+this.value)">
+        <span class="setting-val" id="vFontSize">32px</span>
+      </div>
+      <div class="setting-row">
+        <label>字体</label>
+        <div class="opt-grp" id="fontGroup">
+          <button class="opt-btn on" data-f="default" onclick="setFont('default',this)">默认</button>
+          <button class="opt-btn" data-f="sans" onclick="setFont('sans',this)">无衬线</button>
+          <button class="opt-btn" data-f="mono" onclick="setFont('mono',this)">等宽</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <label>文字颜色</label>
+        <div class="color-row">
+          <div class="swatch on" style="background:#fff" data-c="#ffffff" onclick="setColor('#ffffff',this)"></div>
+          <div class="swatch" style="background:#ffee44" data-c="#ffee44" onclick="setColor('#ffee44',this)"></div>
+          <div class="swatch" style="background:#44ff88" data-c="#44ff88" onclick="setColor('#44ff88',this)"></div>
+          <input class="color-txt" id="colorTxt" type="text" value="#ffffff" oninput="setColorTxt(this.value)">
+        </div>
+      </div>
+      <div class="setting-row">
+        <label>行间距</label>
+        <input type="range" id="rLineH" min="12" max="30" value="18" oninput="setSetting('lineH',this.value/10)">
+        <span class="setting-val" id="vLineH">1.8</span>
+      </div>
+      <div class="setting-row">
+        <label>文字宽度</label>
+        <input type="range" id="rWidth" min="60" max="100" value="85" oninput="setSetting('textW',+this.value)">
+        <span class="setting-val" id="vWidth">85%</span>
+      </div>
+      <div class="setting-row">
+        <label>背景透明度</label>
+        <input type="range" id="rBgAlpha" min="0" max="100" value="100" oninput="setSetting('bgAlpha',+this.value)">
+        <span class="setting-val" id="vBgAlpha">100%</span>
+      </div>
+    </div>
+
+    <!-- 滚动设置 -->
+    <div>
+      <div class="sec-title">滚动设置</div>
+      <div class="setting-row">
+        <label>速度</label>
+        <input type="range" id="rSpeed" min="1" max="20" value="6" oninput="setSetting('speed',+this.value)">
+        <span class="setting-val" id="vSpeed">6</span>
+      </div>
+      <div class="toggle-row">
+        <label>倒计时</label>
+        <label class="tog"><input type="checkbox" id="tCd" checked><span class="tog-track"></span></label>
+      </div>
+      <div class="cd-row">
+        <label>倒计时秒数</label>
+        <input type="number" id="cdSecs" min="0" max="10" value="3">
+      </div>
+    </div>
+
+    <!-- 屏幕方向 -->
+    <div>
+      <div class="sec-title">屏幕方向</div>
+      <div class="opt-grp" id="orientGroup">
+        <button class="opt-btn on" data-o="auto" onclick="setOrient('auto',this)">跟随系统</button>
+        <button class="opt-btn" data-o="portrait" onclick="setOrient('portrait',this)">锁定竖屏</button>
+        <button class="opt-btn" data-o="landscape" onclick="setOrient('landscape',this)">锁定横屏</button>
+      </div>
+    </div>
+
+    <!-- 其他 -->
+    <div>
+      <div class="sec-title">其他设置</div>
+      <div class="toggle-row"><label>镜像翻转（水平）</label><label class="tog"><input type="checkbox" id="tMirror"><span class="tog-track"></span></label></div>
+      <div class="toggle-row" style="margin-top:6px"><label>播放时自动隐藏控件</label><label class="tog"><input type="checkbox" id="tAutoHide" checked><span class="tog-track"></span></label></div>
+      <div class="toggle-row" style="margin-top:6px"><label>智能分行</label><label class="tog"><input type="checkbox" id="tSmartBreak"><span class="tog-track"></span></label></div>
+    </div>
+
+  </div><!-- /ed-body -->
+
+  <div class="action-bar">
+    <button class="act-btn play" onclick="startPlay()">▶ 全屏播放</button>
+  </div>
+</div>
+
+<!-- ===== COUNTDOWN ===== -->
+<div id="cdOverlay" style="display:none">
+  <div id="cdNum">3</div>
+  <div id="cdText">即将开始…</div>
+</div>
+
+<!-- ===== PLAYER ===== -->
+<div id="player">
+  <div id="playerBg"></div>
+  <div class="guide-glow"></div>
+  <div class="guide-line"></div>
+
+  <div id="scrollWrap">
+    <div id="scrollInner">
+      <div id="scrollText"></div>
+    </div>
+  </div>
+
+  <!-- HUD top -->
+  <div class="p-hud" id="pHud">
+    <span class="hud-timer" id="hudTimer">00:00</span>
+    <div class="hud-bar"><div class="hud-fill" id="hudFill"></div></div>
+  </div>
+
+  <!-- Control bar bottom -->
+  <div class="p-ctrl" id="pCtrl">
+    <button class="c-btn danger" onclick="stopPlay()">✕</button>
+    <button class="c-btn" onclick="adjSpeed(-1)" style="min-width:40px;min-height:40px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    <span class="speed-lbl" id="speedLbl">6</span>
+    <button class="c-btn" onclick="adjSpeed(1)" style="min-width:40px;min-height:40px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    <div class="seek-wrap" onclick="seekClick(event)">
+      <div class="seek-track"><div class="seek-fill" id="seekFill"></div></div>
+    </div>
+    <button class="c-btn" id="pauseBtn" onclick="togglePause()" style="font-size:18px;min-width:44px">⏸</button>
+  </div>
+
+  <!-- Done -->
+  <div id="doneOverlay">
+    <h2>✅ 播放完毕</h2>
+    <button onclick="stopPlay()">返回编辑</button>
+  </div>
+</div>
+
+<script>
+// ─── Settings ───
+const CFG = {
+  fontSize:32, fontFamily:'default', textColor:'#ffffff',
+  lineH:1.8, textW:85, bgAlpha:100,
+  speed:6, cdEnable:true, cdSecs:3,
+  orient:'auto', mirror:false, autoHide:true, smartBreak:false
+};
+const FONTS = {
+  default:"-apple-system,'Microsoft YaHei',sans-serif",
+  sans:"Arial,Helvetica,sans-serif",
+  mono:"'Courier New',Consolas,monospace"
+};
+
+function saveCfg(){ localStorage.setItem('tp_cfg', JSON.stringify(CFG)); }
+function loadCfg(){
+  try{ Object.assign(CFG, JSON.parse(localStorage.getItem('tp_cfg')||'{}')); }catch(e){}
+  document.getElementById('rFontSize').value  = CFG.fontSize;
+  document.getElementById('rLineH').value     = Math.round(CFG.lineH*10);
+  document.getElementById('rWidth').value     = CFG.textW;
+  document.getElementById('rBgAlpha').value   = CFG.bgAlpha;
+  document.getElementById('rSpeed').value     = CFG.speed;
+  document.getElementById('tCd').checked      = CFG.cdEnable;
+  document.getElementById('cdSecs').value     = CFG.cdSecs;
+  document.getElementById('tMirror').checked  = CFG.mirror;
+  document.getElementById('tAutoHide').checked= CFG.autoHide;
+  document.getElementById('tSmartBreak').checked = CFG.smartBreak;
+  document.getElementById('colorTxt').value   = CFG.textColor;
+  refreshVals();
+  // buttons
+  document.querySelectorAll('#fontGroup .opt-btn').forEach(b=>b.classList.toggle('on', b.dataset.f===CFG.fontFamily));
+  document.querySelectorAll('.swatch').forEach(s=>s.classList.toggle('on', s.dataset.c===CFG.textColor));
+  document.querySelectorAll('#orientGroup .opt-btn').forEach(b=>b.classList.toggle('on', b.dataset.o===CFG.orient));
+}
+function refreshVals(){
+  document.getElementById('vFontSize').textContent = CFG.fontSize+'px';
+  document.getElementById('vLineH').textContent    = CFG.lineH.toFixed(1);
+  document.getElementById('vWidth').textContent    = CFG.textW+'%';
+  document.getElementById('vBgAlpha').textContent  = CFG.bgAlpha+'%';
+  document.getElementById('vSpeed').textContent    = CFG.speed;
+}
+function setSetting(k,v){
+  if(k==='fontSize') CFG.fontSize=+v;
+  else if(k==='lineH') CFG.lineH=parseFloat(v);
+  else if(k==='textW') CFG.textW=+v;
+  else if(k==='bgAlpha') CFG.bgAlpha=+v;
+  else if(k==='speed'){ CFG.speed=+v; curSpeed=CFG.speed; document.getElementById('speedLbl').textContent=curSpeed; }
+  refreshVals(); saveCfg();
+}
+function setFont(f,btn){ CFG.fontFamily=f; document.querySelectorAll('#fontGroup .opt-btn').forEach(b=>b.classList.toggle('on',b===btn)); saveCfg(); }
+function setColor(c,sw){
+  CFG.textColor=c;
+  document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('on'));
+  if(sw) sw.classList.add('on');
+  document.getElementById('colorTxt').value=c;
+  saveCfg();
+}
+function setColorTxt(v){ if(/^#[0-9a-fA-F]{6}$/.test(v)){ CFG.textColor=v; document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('on')); saveCfg(); } }
+function setOrient(o,btn){ CFG.orient=o; document.querySelectorAll('#orientGroup .opt-btn').forEach(b=>b.classList.toggle('on',b===btn)); applyOrient(); saveCfg(); }
+async function applyOrient(){
+  if(window.AndroidSaveFile && typeof window.AndroidSaveFile.setOrientation==='function'){
+    try{ window.AndroidSaveFile.setOrientation(CFG.orient); }catch(e){}
+    return;
+  }
+  const so=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.ScreenOrientation;
+  if(so){
+    try{
+      if(CFG.orient==='portrait') await so.lock({orientation:'portrait'});
+      else if(CFG.orient==='landscape') await so.lock({orientation:'landscape'});
+      else await so.unlock();
+    }catch(e){}
+  } else {
+    if(!screen.orientation||!screen.orientation.lock) return;
+    try{
+      if(CFG.orient==='portrait') screen.orientation.lock('portrait');
+      else if(CFG.orient==='landscape') screen.orientation.lock('landscape');
+      else screen.orientation.unlock();
+    }catch(e){}
+  }
+}
+['tCd','tMirror','tAutoHide','tSmartBreak'].forEach(id=>{
+  document.getElementById(id).addEventListener('change',function(){
+    if(id==='tCd') CFG.cdEnable=this.checked;
+    else if(id==='tMirror') CFG.mirror=this.checked;
+    else if(id==='tAutoHide') CFG.autoHide=this.checked;
+    else if(id==='tSmartBreak') CFG.smartBreak=this.checked;
+    saveCfg();
+  });
+});
+document.getElementById('cdSecs').addEventListener('change',function(){ CFG.cdSecs=+this.value||3; saveCfg(); });
+
+// ─── Stats ───
+const si = document.getElementById('scriptInput');
+si.addEventListener('input', updateStats);
+function updateStats(){
+  const n=si.value.length, s=Math.round(n/3.5), m=Math.floor(s/60);
+  document.getElementById('charCount').textContent=n+' 字';
+  document.getElementById('durEst').textContent='预计 '+m+':'+(s%60+'').padStart(2,'0');
+}
+
+// ─── Script management ───
+function getScripts(){ try{ return JSON.parse(localStorage.getItem('tp_scripts')||'[]'); }catch(e){ return []; } }
+function putScripts(a){ localStorage.setItem('tp_scripts', JSON.stringify(a)); }
+function saveScript(){
+  const name=document.getElementById('sNameInput').value.trim();
+  if(!name){ alert('请输入脚本名称'); return; }
+  const text=si.value;
+  if(!text.trim()){ alert('内容为空'); return; }
+  let list=getScripts();
+  const idx=list.findIndex(x=>x.name===name);
+  const obj={name,text,date:new Date().toLocaleDateString('zh-CN')};
+  if(idx>=0) list[idx]=obj;
+  else{ if(list.length>=20){ alert('最多保存20个脚本'); return; } list.unshift(obj); }
+  putScripts(list); renderScripts();
+  document.getElementById('sNameInput').value='';
+  alert('已保存：'+name);
+}
+function toggleScriptList(){
+  const el=document.getElementById('scriptList');
+  const show=el.style.display!=='flex';
+  el.style.display=show?'flex':'none';
+  if(show) renderScripts();
+}
+function renderScripts(){
+  const list=getScripts(), box=document.getElementById('scriptList');
+  if(!list.length){ box.innerHTML='<div class="no-scripts">暂无脚本</div>'; return; }
+  box.innerHTML=list.map((s,i)=>`
+    <div class="script-item" onclick="loadScript(${i})">
+      <span class="si-name">${s.name}</span>
+      <span class="si-date">${s.date}</span>
+      <span class="si-del" onclick="event.stopPropagation();delScript(${i})">×</span>
+    </div>`).join('');
+}
+function loadScript(i){ const s=getScripts()[i]; if(!s) return; si.value=s.text; document.getElementById('sNameInput').value=s.name; updateStats(); document.getElementById('scriptList').style.display='none'; }
+function delScript(i){ if(!confirm('删除？')) return; const a=getScripts(); a.splice(i,1); putScripts(a); renderScripts(); }
+
+// ─── Player ───
+let raf=null, scrollY=0, scrollTotal=0, curSpeed=6;
+let paused=false, manual=false, manualTmo=null;
+let t0=0, elapsed=0, lastTs=0, hudTmo=null, wakeLock=null;
+
+function buildText(){
+  let text=si.value;
+  if(!text.trim()){ alert('请输入提词内容'); return false; }
+  if(CFG.smartBreak) text=smartBreak(text);
+  const el=document.getElementById('scrollText');
+  el.style.cssText=`font-size:${CFG.fontSize}px;font-family:${FONTS[CFG.fontFamily]};color:${CFG.textColor};line-height:${CFG.lineH};width:${CFG.textW}%;${CFG.mirror?'transform:scaleX(-1)':''}`;
+  el.textContent=text;
+  const a=CFG.bgAlpha/100;
+  document.getElementById('playerBg').style.background=`rgba(10,10,10,${a})`;
+  return true;
+}
+function smartBreak(t){
+  return t.replace(/([。！？…；;])/g,'$1\n').replace(/\n{3,}/g,'\n\n');
+}
+
+async function startPlay(){
+  if(!buildText()) return;
+  curSpeed=CFG.speed;
+  document.getElementById('speedLbl').textContent=curSpeed;
+  if(CFG.cdEnable && CFG.cdSecs>0) await countdown(CFG.cdSecs);
+  document.getElementById('editor').style.display='none';
+  document.getElementById('player').style.display='block';
+  document.getElementById('doneOverlay').style.display='none';
+  document.getElementById('pauseBtn').textContent='⏸';
+  scrollY=0; paused=false; manual=false;
+  document.getElementById('scrollInner').style.transform='translateY(0)';
+  setProgress(0);
+  t0=performance.now(); elapsed=0; lastTs=t0;
+  applyOrient();
+  await reqWakeLock();
+  await new Promise(r=>requestAnimationFrame(r)); // let layout settle
+  scrollTotal=Math.max(0, document.getElementById('scrollInner').scrollHeight - window.innerHeight);
+  showHud();
+  raf=requestAnimationFrame(tick);
+}
+
+function countdown(secs){
+  return new Promise(res=>{
+    const ov=document.getElementById('cdOverlay'), nm=document.getElementById('cdNum');
+    ov.style.display='flex'; let n=secs; nm.textContent=n;
+    const iv=setInterval(()=>{ n--; if(n<=0){ clearInterval(iv); ov.style.display='none'; res(); } else nm.textContent=n; },1000);
+  });
+}
+
+function tick(ts){
+  if(!paused && !manual){
+    const dt=ts-lastTs;
+    const px=curSpeed*10*dt/1000;
+    scrollY+=px;
+    if(scrollY>=scrollTotal){
+      scrollY=scrollTotal;
+      document.getElementById('scrollInner').style.transform=`translateY(-${scrollY}px)`;
+      setProgress(1);
+      showDone(); return;
+    }
+    document.getElementById('scrollInner').style.transform=`translateY(-${scrollY}px)`;
+    setProgress(scrollY/scrollTotal);
+    // timer
+    const sec=Math.floor((ts-t0+elapsed)/1000);
+    document.getElementById('hudTimer').textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
+  }
+  lastTs=ts;
+  raf=requestAnimationFrame(tick);
+}
+
+function setProgress(r){
+  const pct=Math.min(100,r*100).toFixed(1)+'%';
+  document.getElementById('hudFill').style.width=pct;
+  document.getElementById('seekFill').style.width=pct;
+}
+
+function showDone(){
+  cancelAnimationFrame(raf); raf=null;
+  relWakeLock();
+  document.getElementById('doneOverlay').style.display='flex';
+}
+function stopPlay(){
+  cancelAnimationFrame(raf); raf=null;
+  relWakeLock();
+  document.getElementById('player').style.display='none';
+  document.getElementById('editor').style.display='flex';
+  if(window.AndroidSaveFile && typeof window.AndroidSaveFile.setOrientation==='function'){
+    try{ window.AndroidSaveFile.setOrientation('auto'); }catch(e){}
+  } else {
+    const so=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.ScreenOrientation;
+    if(so){ so.unlock().catch(()=>{}); }
+    else{ try{ if(screen.orientation) screen.orientation.unlock(); }catch(e){} }
+  }
+}
+function togglePause(){
+  if(paused){ paused=false; lastTs=performance.now(); document.getElementById('pauseBtn').textContent='⏸'; if(!raf) raf=requestAnimationFrame(tick); }
+  else{ paused=true; elapsed+=performance.now()-t0; t0=performance.now(); document.getElementById('pauseBtn').textContent='▶'; }
+}
+function adjSpeed(d){ curSpeed=Math.min(20,Math.max(1,curSpeed+d)); document.getElementById('speedLbl').textContent=curSpeed; }
+function seekClick(e){
+  const r=e.offsetX/e.currentTarget.clientWidth;
+  scrollY=scrollTotal*Math.max(0,Math.min(1,r));
+  document.getElementById('scrollInner').style.transform=`translateY(-${scrollY}px)`;
+  setProgress(r);
+}
+
+// ─── Gestures ───
+let tx=0,ty=0,tsy=0;
+document.getElementById('player').addEventListener('touchstart',e=>{
+  if(e.target.closest('.p-ctrl,.p-hud')) return;
+  tx=e.touches[0].clientX; ty=e.touches[0].clientY; tsy=scrollY;
+  showHud();
+},{passive:true});
+document.getElementById('player').addEventListener('touchmove',e=>{
+  if(e.target.closest('.p-ctrl,.p-hud')) return;
+  const dy=ty-e.touches[0].clientY;
+  if(Math.abs(dy)>5){ manual=true; scrollY=Math.max(0,tsy+dy); document.getElementById('scrollInner').style.transform=`translateY(-${scrollY}px)`; setProgress(scrollY/(scrollTotal||1)); }
+},{passive:true});
+document.getElementById('player').addEventListener('touchend',e=>{
+  if(e.target.closest('.p-ctrl,.p-hud')) return;
+  const dx=e.changedTouches[0].clientX-tx, dy=e.changedTouches[0].clientY-ty;
+  if(Math.abs(dx)<10&&Math.abs(dy)<10){
+    const z=tx/window.innerWidth;
+    if(z<0.333) adjSpeed(-1); else if(z>0.667) adjSpeed(1); else togglePause();
+  } else { clearTimeout(manualTmo); manualTmo=setTimeout(()=>{ manual=false; },2000); }
+});
+
+// ─── HUD auto-hide ───
+function showHud(){
+  document.getElementById('pHud').style.opacity='1';
+  document.getElementById('pCtrl').style.opacity='1';
+  if(!CFG.autoHide) return;
+  clearTimeout(hudTmo);
+  hudTmo=setTimeout(()=>{ document.getElementById('pHud').style.opacity='0'; document.getElementById('pCtrl').style.opacity='0'; },3000);
+}
+
+// ─── WakeLock ───
+async function reqWakeLock(){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} }
+function relWakeLock(){ if(wakeLock){ wakeLock.release(); wakeLock=null; } }
+
+// ─── Keyboard ───
+document.addEventListener('keydown',e=>{
+  if(document.getElementById('player').style.display==='none') return;
+  if(e.key===' '){ e.preventDefault(); togglePause(); }
+  else if(e.key==='Escape') stopPlay();
+  else if(e.key==='ArrowUp') adjSpeed(1);
+  else if(e.key==='ArrowDown') adjSpeed(-1);
+});
+
+// ─── Native back key hook ───
+// Called from WebToolActivity before it finishes the Activity: if the fullscreen
+// player is open, close it and report the back press as consumed.
+window.handleNativeBack = function(){
+  const player=document.getElementById('player');
+  if(player && player.style.display!=='none'){ stopPlay(); return true; }
+  return false;
+};
+
+// ─── Init ───
+loadCfg(); updateStats();
+</script>
+</body>
+</html>

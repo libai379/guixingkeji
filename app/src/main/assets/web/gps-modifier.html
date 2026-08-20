@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>📍 GPS 定位修改工具</title>
+<!-- 全部本地化，不依赖 CDN - cdnjs.cloudflare.com 在国内实测直接卡死整个页面（不是加载失败报错，
+     是 <script> 请求悬而不决，后面所有代码都执行不到）。同一个坑，虚拟定位那边的地图页也踩过。 -->
+<link rel="stylesheet" href="lib/leaflet/leaflet.css"/>
+<script src="lib/leaflet/leaflet.js"></script>
+<!-- See mock-location.html's own comment - leaflet.mapCorrection.min.js needs
+     L.TileLayer.ChinaProvider to already exist or its top-level code throws before ever applying
+     the L.GridLayer patch this actually depends on. -->
+<script src="lib/leaflet/leaflet.ChineseTmsProviders.js"></script>
+<script src="lib/leaflet/leaflet.mapCorrection.min.js"></script>
+<script src="lib/exif-reader.js"></script>
+<script src="lib/piexif.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'Microsoft YaHei','PingFang SC',sans-serif;background:#f0f2f5;overflow:hidden}
+.app{display:flex;height:100vh;height:100dvh}
+
+/* ---- Map ---- */
+.map-wrap{flex:1;position:relative}
+#map{width:100%;height:100%}
+.map-search{position:absolute;top:10px;left:50px;z-index:800;display:flex;gap:6px}
+.map-search input{width:220px;padding:8px 12px;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.18);font-size:14px;outline:none}
+.map-search button{padding:8px 14px;border:none;border-radius:8px;background:#1677ff;color:#fff;cursor:pointer;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.18);white-space:nowrap}
+.search-results{position:absolute;top:48px;left:50px;z-index:800;background:#fff;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);max-width:320px;overflow:hidden;display:none}
+.sr-item{padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;line-height:1.4}
+.sr-item:last-child{border-bottom:none}
+.sr-item:hover{background:#f0f7ff}
+.sr-item small{color:#999;display:block;margin-top:2px}
+
+.coord-badge{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:800;
+  background:rgba(0,0,0,.72);color:#fff;padding:8px 18px;border-radius:20px;font-size:13px;
+  font-family:Consolas,'Courier New',monospace;backdrop-filter:blur(6px);pointer-events:none;
+  transition:opacity .3s}
+.coord-badge.empty{opacity:.5}
+
+/* ---- Panel ---- */
+.panel{width:380px;background:#fff;display:flex;flex-direction:column;border-left:1px solid #e8e8e8;overflow:hidden}
+.panel-scroll{flex:1;overflow-y:auto;padding:16px 18px}
+.panel h1{font-size:18px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+.section{margin-bottom:14px}
+.sec-title{font-size:12px;color:#888;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+
+.city-grid{display:flex;flex-wrap:wrap;gap:5px}
+.city-btn{padding:3px 10px;border-radius:12px;border:1px solid #d9d9d9;background:#fff;cursor:pointer;font-size:12px;transition:all .15s;color:#555}
+.city-btn:hover{border-color:#1677ff;color:#1677ff}
+.city-btn.active{background:#1677ff;color:#fff;border-color:#1677ff}
+
+.manual-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.manual-row label{font-size:12px;color:#666;white-space:nowrap}
+.manual-row input{width:100px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px;font-family:Consolas,monospace;outline:none}
+.manual-row input:focus{border-color:#1677ff}
+
+.drop-zone{border:2px dashed #d0d0d0;border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:all .2s;color:#999;font-size:14px;line-height:1.6}
+.drop-zone:hover,.drop-zone.over{border-color:#1677ff;background:#f0f7ff;color:#1677ff}
+
+.file-list{margin-top:8px}
+.file-item{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;background:#f7f7f7;border-radius:6px;margin-bottom:3px;font-size:12px}
+.file-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px}
+.file-item .type-tag{font-size:10px;padding:1px 6px;border-radius:4px;margin-right:6px}
+.file-item .type-tag.photo{background:#e6f7ff;color:#1890ff}
+.file-item .type-tag.video{background:#fff7e6;color:#fa8c16}
+.file-item .type-tag.unknown{background:#f0f0f0;color:#999}
+.file-item .rm{cursor:pointer;color:#bbb;font-size:16px;line-height:1}
+.file-item .rm:hover{color:#ff4d4f}
+
+.opts{display:flex;align-items:center;gap:6px;margin-top:8px}
+.opts input[type=checkbox]{accent-color:#1677ff}
+.opts label{font-size:12px;color:#555;cursor:pointer}
+
+.exec-btn{width:100%;padding:12px;background:#52c41a;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:background .2s;margin-top:4px}
+.exec-btn:hover{background:#45a049}
+.exec-btn:disabled{background:#d9d9d9;cursor:not-allowed}
+
+.log-box{background:#1a1a2e;color:#7ec87e;padding:10px 12px;border-radius:8px;font-family:Consolas,'Courier New',monospace;font-size:11px;max-height:140px;overflow-y:auto;white-space:pre-wrap;line-height:1.7;margin-top:10px}
+
+.note{font-size:11px;color:#aaa;margin-top:10px;line-height:1.5;border-top:1px solid #f0f0f0;padding-top:10px}
+
+/* ---- Mobile ---- */
+@media(max-width:768px){
+  .app{flex-direction:column}
+  .map-wrap{height:40vh;height:40dvh}
+  .panel{width:100%;border-left:none;border-top:1px solid #e8e8e8;height:60vh;height:60dvh}
+  .map-search input{width:160px}
+  .coord-badge{bottom:12px;font-size:12px;padding:6px 14px}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="map-search">
+      <input type="text" id="searchInput" placeholder="搜索地名（需要网络，可能不可用）" />
+      <button onclick="doSearch()">搜索</button>
+    </div>
+    <div class="search-results" id="searchResults"></div>
+    <div class="coord-badge empty" id="coordBadge">点击地图选择位置</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-scroll">
+      <h1>📍 GPS 定位修改</h1>
+
+      <div class="section">
+        <div class="sec-title">快捷城市</div>
+        <div class="city-grid" id="cityGrid"></div>
+        <div class="manual-row">
+          <label>纬度</label><input type="text" id="latInput" placeholder="31.2304">
+          <label>经度</label><input type="text" id="lonInput" placeholder="121.4737">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-title">选择文件</div>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+          点击选择 或 拖放文件到此<br><small>支持 JPG / MP4 / MOV</small>
+        </div>
+        <input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none">
+        <div class="file-list" id="fileList"></div>
+      </div>
+
+      <div class="section">
+        <div class="opts">
+          <input type="checkbox" id="offsetCheck" checked>
+          <label for="offsetCheck">随机偏移 ±500m（避免坐标完全一致）</label>
+        </div>
+        <button class="exec-btn" id="execBtn" onclick="execute()">✅ 修改定位并下载</button>
+      </div>
+
+      <div class="log-box" id="logBox">就绪。在地图上选择位置，然后添加文件即可。</div>
+
+      <div class="note">
+        📷 照片：浏览器内直接修改 EXIF GPS，无需安装任何工具<br>
+        🎬 视频：浏览器内修改 MP4 定位信息<br>
+        💡 修改后自动保存到相册「GPS定位修改」，原文件不受影响
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 城市坐标 =====
+const CITIES = {
+  "上海":[31.2304,121.4737],"北京":[39.9042,116.4074],"广州":[23.1291,113.2644],
+  "深圳":[22.5431,114.0579],"沈阳":[41.8057,123.4315],"成都":[30.5728,104.0668],
+  "杭州":[30.2741,120.1551],"重庆":[29.5630,106.5516],"武汉":[30.5928,114.3055],
+  "西安":[34.3416,108.9398],"南京":[32.0603,118.7969],"长沙":[28.2280,112.9388],
+  "苏州":[31.2990,120.5853],"天津":[39.3434,117.3616],"郑州":[34.7466,113.6253],
+  "青岛":[36.0671,120.3826],"大连":[38.9140,121.6147],"厦门":[24.4798,118.0894],
+  "昆明":[25.0389,102.7183],"哈尔滨":[45.8038,126.5340],"长春":[43.8171,125.3235],
+  "海口":[20.0174,110.3492],"贵阳":[26.6470,106.6302],"南宁":[22.8170,108.3665],
+  "济南":[36.6512,116.9972],"石家庄":[38.0428,114.5149],"太原":[37.8706,112.5489],
+  "福州":[26.0745,119.2965],"合肥":[31.8206,117.2272],"兰州":[36.0611,103.8343],
+};
+
+const PHOTO_EXT = new Set(['jpg','jpeg','tif','tiff']);
+const VIDEO_EXT = new Set(['mp4','mov','3gp','avi']);
+
+// ===== State =====
+let selectedLat = null, selectedLon = null;
+let files = [];
+let marker = null;
+let activeCity = null;
+
+// ===== Map =====
+const map = L.map('map',{zoomControl:false}).setView([35,105],5);
+L.control.zoom({position:'bottomright'}).addTo(map);
+// 高德瓦片是 GCJ02 坐标系，corrdType:'gcj02' 交给 Leaflet.InternetMapCorrection 在绘制瓦片时纠偏 -
+// 地图的 setView/marker/点击事件坐标全程仍是 WGS84。国内可达，必须 https。
+L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',{
+  subdomains: ['1','2','3','4'],
+  corrdType: 'gcj02',
+  attribution: '高德地图',
+  maxZoom: 18,
+}).addTo(map);
+
+map.on('click', e => {
+  setCoords(e.latlng.lat, e.latlng.lng);
+  clearActiveCity();
+});
+
+function setCoords(lat,lon){
+  selectedLat=lat; selectedLon=lon;
+  document.getElementById('latInput').value=lat.toFixed(6);
+  document.getElementById('lonInput').value=lon.toFixed(6);
+  const badge=document.getElementById('coordBadge');
+  badge.textContent=`${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  badge.classList.remove('empty');
+  if(marker) map.removeLayer(marker);
+  marker=L.marker([lat,lon]).addTo(map);
+}
+
+// ===== City buttons =====
+const grid=document.getElementById('cityGrid');
+for(const [name,[lat,lon]] of Object.entries(CITIES)){
+  const btn=document.createElement('button');
+  btn.className='city-btn';
+  btn.textContent=name;
+  btn.onclick=()=>{
+    setCoords(lat,lon);
+    map.flyTo([lat,lon],12,{duration:.8});
+    clearActiveCity();
+    btn.classList.add('active');
+    activeCity=btn;
+  };
+  grid.appendChild(btn);
+}
+function clearActiveCity(){
+  if(activeCity){activeCity.classList.remove('active');activeCity=null}
+}
+
+// Manual input
+document.getElementById('latInput').addEventListener('change', syncManual);
+document.getElementById('lonInput').addEventListener('change', syncManual);
+function syncManual(){
+  const la=parseFloat(document.getElementById('latInput').value);
+  const lo=parseFloat(document.getElementById('lonInput').value);
+  if(!isNaN(la)&&!isNaN(lo)&&la>=-90&&la<=90&&lo>=-180&&lo<=180){
+    setCoords(la,lo);
+    map.flyTo([la,lo],12,{duration:.8});
+    clearActiveCity();
+  }
+}
+
+// ===== Search =====
+let searchTimeout=null;
+document.getElementById('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});
+
+async function doSearch(){
+  const q=document.getElementById('searchInput').value.trim();
+  if(!q)return;
+  const box=document.getElementById('searchResults');
+  box.innerHTML='<div class="sr-item" style="color:#999">搜索中...</div>';
+  box.style.display='block';
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&accept-language=zh`);
+    const data=await r.json();
+    if(!data.length){
+      box.innerHTML='<div class="sr-item" style="color:#999">未找到结果</div>';
+      setTimeout(()=>box.style.display='none',2000);
+      return;
+    }
+    box.innerHTML='';
+    data.forEach(item=>{
+      const div=document.createElement('div');
+      div.className='sr-item';
+      div.innerHTML=`${item.display_name.split(',').slice(0,3).join(', ')}<small>${parseFloat(item.lat).toFixed(4)}, ${parseFloat(item.lon).toFixed(4)}</small>`;
+      div.onclick=()=>{
+        setCoords(parseFloat(item.lat),parseFloat(item.lon));
+        map.flyTo([item.lat,item.lon],14,{duration:.8});
+        clearActiveCity();
+        box.style.display='none';
+      };
+      box.appendChild(div);
+    });
+  }catch(e){
+    box.innerHTML='<div class="sr-item" style="color:#f00">搜索失败，请重试</div>';
+    setTimeout(()=>box.style.display='none',2000);
+  }
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.map-search')&&!e.target.closest('.search-results'))
+    document.getElementById('searchResults').style.display='none';
+});
+
+// ===== File handling =====
+// Files are read into memory IMMEDIATELY on selection to avoid
+// Android WebView stale file reference errors.
+const dropZone=document.getElementById('dropZone');
+const fileInput=document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('over');addFiles(e.dataTransfer.files)});
+fileInput.addEventListener('change',()=>{addFiles(fileInput.files);fileInput.value=''});
+
+async function addFiles(fl){
+  for(const f of fl){
+    if(files.find(x=>x.name===f.name&&x.size===f.size)) continue;
+    try{
+      const buf=await f.arrayBuffer();
+      files.push({name:f.name, size:f.size, type:f.type||'application/octet-stream', buffer:buf});
+    }catch(e){
+      log(`⚠ ${f.name} 读取失败: ${e.message}`);
+    }
+  }
+  renderFiles();
+}
+function removeFile(i){files.splice(i,1);renderFiles()}
+function renderFiles(){
+  const box=document.getElementById('fileList');
+  if(!files.length){box.innerHTML='';return}
+  box.innerHTML=files.map((f,i)=>{
+    const ext=f.name.split('.').pop().toLowerCase();
+    const type=PHOTO_EXT.has(ext)?'photo':VIDEO_EXT.has(ext)?'video':'unknown';
+    const label=type==='photo'?'照片':type==='video'?'视频':'?';
+    return `<div class="file-item">
+      <span class="type-tag ${type}">${label}</span>
+      <span class="name">${f.name}</span>
+      <span class="rm" onclick="removeFile(${i})">×</span>
+    </div>`;
+  }).join('');
+}
+
+// ===== Log =====
+function log(msg){
+  const box=document.getElementById('logBox');
+  box.textContent+='\n'+msg;
+  box.scrollTop=box.scrollHeight;
+  console.log(msg);
+}
+function clearLog(){document.getElementById('logBox').textContent=''}
+
+// ===== Random offset =====
+function randomOffset(lat,lon,meters){
+  const latOff=(Math.random()*2-1)*meters/111320;
+  const lonOff=(Math.random()*2-1)*meters/(111320*Math.cos(lat*Math.PI/180));
+  return [lat+latOff, lon+lonOff];
+}
+
+// ===== Decimal to DMS rational =====
+function decToDms(dd){
+  dd=Math.abs(dd);
+  const d=Math.floor(dd);
+  const m=Math.floor((dd-d)*60);
+  const s=Math.round(((dd-d)*60-m)*60*10000);
+  return [d,m,s];
+}
+
+// ===== 文件类型检测（不信后缀，不信 file.type，只看 magic bytes） =====
+
+function detectFormat(buffer){
+  const d=new Uint8Array(buffer.slice(0,32));
+  const hex=Array.from(d.slice(0,12)).map(b=>b.toString(16).padStart(2,'0')).join(' ');
+  let fmt='unknown';
+  if(d[0]===0xFF&&d[1]===0xD8&&d[2]===0xFF){
+    fmt='jpeg';
+  }else if(d[0]===0x89&&d[1]===0x50&&d[2]===0x4E&&d[3]===0x47){
+    fmt='png';
+  }else if(d[0]===0x52&&d[1]===0x49&&d[2]===0x46&&d[3]===0x46&&d[8]===0x57&&d[9]===0x45&&d[10]===0x42&&d[11]===0x50){
+    fmt='webp';
+  }else if(d[4]===0x66&&d[5]===0x74&&d[6]===0x79&&d[7]===0x70){
+    const brand=String.fromCharCode(d[8],d[9],d[10],d[11]).toLowerCase().trim();
+    const heicBrands=['heic','heix','heim','heis','hevc','hevx','hevm','hevs','mif1','msf1'];
+    fmt=heicBrands.includes(brand)?'heic':'video';
+  }
+  log(`🔍 magic-byte检测: ${fmt} (head=${hex})`);
+  return {fmt,hex};
+}
+
+// ===== JPEG EXIF GPS Modification =====
+
+function findExifApp1(data){
+  if(data[0]!==0xFF||data[1]!==0xD8) return null;
+  let pos=2;
+  while(pos<data.length-4){
+    if(data[pos]!==0xFF) return null;
+    const mk=data[pos+1];
+    if(mk===0xDA||mk===0xD9) break;
+    const len=(data[pos+2]<<8)|data[pos+3];
+    if(mk===0xE1){
+      if(data[pos+4]===0x45&&data[pos+5]===0x78&&data[pos+6]===0x69&&data[pos+7]===0x66&&data[pos+8]===0&&data[pos+9]===0){
+        return {offset:pos, length:len+2};
+      }
+    }
+    pos+=2+len;
+  }
+  return null;
+}
+
+function tryInPlaceGps(buffer,tiffOff,lat,lon){
+  const v=new DataView(buffer);
+  const le=v.getUint16(tiffOff)===0x4949;
+  const r16=o=>v.getUint16(tiffOff+o,le);
+  const r32=o=>v.getUint32(tiffOff+o,le);
+  const w32=(o,val)=>v.setUint32(tiffOff+o,val,le);
+  const bytes=new Uint8Array(buffer);
+
+  const ifd0Off=r32(4);
+  const cnt=r16(ifd0Off);
+  let gpsOff=-1;
+  for(let i=0;i<cnt;i++){
+    const e=ifd0Off+2+i*12;
+    if(r16(e)===0x8825){gpsOff=r32(e+8);break}
+  }
+  if(gpsOff<0) return false;
+
+  const gcnt=r16(gpsOff);
+  const latD=decToDms(lat), lonD=decToDms(lon);
+  let fLat=false,fLon=false,fLR=false,fNR=false;
+
+  for(let i=0;i<gcnt;i++){
+    const e=gpsOff+2+i*12;
+    const tag=r16(e);
+    if(tag===1){// LatRef
+      bytes[tiffOff+e+8]=lat>=0?0x4E:0x53;
+      bytes[tiffOff+e+9]=0;
+      fLR=true;
+    }else if(tag===2){// Lat
+      const vo=r32(e+8);
+      w32(vo,latD[0]);w32(vo+4,1);w32(vo+8,latD[1]);w32(vo+12,1);w32(vo+16,latD[2]);w32(vo+20,10000);
+      fLat=true;
+    }else if(tag===3){// LonRef
+      bytes[tiffOff+e+8]=lon>=0?0x45:0x57;
+      bytes[tiffOff+e+9]=0;
+      fNR=true;
+    }else if(tag===4){// Lon
+      const vo=r32(e+8);
+      w32(vo,lonD[0]);w32(vo+4,1);w32(vo+8,lonD[1]);w32(vo+12,1);w32(vo+16,lonD[2]);w32(vo+20,10000);
+      fLon=true;
+    }
+  }
+  return fLat&&fLon&&fLR&&fNR;
+}
+
+function buildMinimalExif(lat,lon){
+  // TIFF(8) + IFD0(18) + GPS_IFD(66) + GPS_DATA(48) = 140
+  const buf=new ArrayBuffer(140);
+  const v=new DataView(buf);
+  const b=new Uint8Array(buf);
+  b[0]=0x49;b[1]=0x49; v.setUint16(2,42,true); v.setUint32(4,8,true);
+  // IFD0: 1 entry (GPS pointer)
+  const i0=8;
+  v.setUint16(i0,1,true);
+  v.setUint16(i0+2,0x8825,true); v.setUint16(i0+4,4,true); v.setUint32(i0+6,1,true); v.setUint32(i0+10,26,true);
+  v.setUint32(i0+14,0,true);
+  // GPS IFD at 26: 5 entries
+  const g=26, gd=g+66;
+  v.setUint16(g,5,true);
+  let e=g+2;
+  const latD=decToDms(lat), lonD=decToDms(lon);
+  // 0:VersionID
+  v.setUint16(e,0,true);v.setUint16(e+2,1,true);v.setUint32(e+4,4,true);b[e+8]=2;b[e+9]=3;e+=12;
+  // 1:LatRef
+  v.setUint16(e,1,true);v.setUint16(e+2,2,true);v.setUint32(e+4,2,true);b[e+8]=lat>=0?0x4E:0x53;e+=12;
+  // 2:Lat
+  v.setUint16(e,2,true);v.setUint16(e+2,5,true);v.setUint32(e+4,3,true);v.setUint32(e+8,gd,true);
+  v.setUint32(gd,latD[0],true);v.setUint32(gd+4,1,true);v.setUint32(gd+8,latD[1],true);v.setUint32(gd+12,1,true);v.setUint32(gd+16,latD[2],true);v.setUint32(gd+20,10000,true);
+  e+=12;
+  // 3:LonRef
+  v.setUint16(e,3,true);v.setUint16(e+2,2,true);v.setUint32(e+4,2,true);b[e+8]=lon>=0?0x45:0x57;e+=12;
+  // 4:Lon
+  const ld=gd+24;
+  v.setUint16(e,4,true);v.setUint16(e+2,5,true);v.setUint32(e+4,3,true);v.setUint32(e+8,ld,true);
+  v.setUint32(ld,lonD[0],true);v.setUint32(ld+4,1,true);v.setUint32(ld+8,lonD[1],true);v.setUint32(ld+12,1,true);v.setUint32(ld+16,lonD[2],true);v.setUint32(ld+20,10000,true);
+  e+=12;
+  v.setUint32(e,0,true);
+  return new Uint8Array(buf);
+}
+
+function processJpeg(buffer,lat,lon){
+  const data=new Uint8Array(buffer);
+  if(data[0]!==0xFF||data[1]!==0xD8){
+    const head=Array.from(data.slice(0,16)).map(b=>b.toString(16).padStart(2,'0')).join(' ');
+    return {ok:false,msg:`不是JPEG文件 (size=${data.length}, head=${head})`};
+  }
+  const app1=findExifApp1(data);
+  if(app1){
+    const clone=buffer.slice(0);
+    if(tryInPlaceGps(clone,app1.offset+10,lat,lon)){
+      return {ok:true,data:new Uint8Array(clone),msg:'GPS已修改（EXIF完整保留）'};
+    }
+    // GPS IFD不存在或不完整 → 替换APP1
+    const exif=buildMinimalExif(lat,lon);
+    const app1Bytes=buildApp1Segment(exif);
+    const out=new Uint8Array(2+app1Bytes.length+(data.length-app1.offset-app1.length));
+    out[0]=0xFF;out[1]=0xD8;
+    out.set(app1Bytes,2);
+    out.set(data.subarray(app1.offset+app1.length),2+app1Bytes.length);
+    return {ok:true,data:out,msg:'GPS已写入（EXIF重建）'};
+  }
+  // 无EXIF → 插入
+  const exif=buildMinimalExif(lat,lon);
+  const app1Bytes=buildApp1Segment(exif);
+  const out=new Uint8Array(2+app1Bytes.length+data.length-2);
+  out[0]=0xFF;out[1]=0xD8;
+  out.set(app1Bytes,2);
+  out.set(data.subarray(2),2+app1Bytes.length);
+  return {ok:true,data:out,msg:'GPS已写入（新建EXIF）'};
+}
+
+function buildApp1Segment(tiffData){
+  const len=2+6+tiffData.length; // length field + "Exif\0\0" + TIFF
+  const seg=new Uint8Array(2+len);
+  seg[0]=0xFF;seg[1]=0xE1;
+  seg[2]=(len>>8)&0xFF;seg[3]=len&0xFF;
+  seg[4]=0x45;seg[5]=0x78;seg[6]=0x69;seg[7]=0x66;seg[8]=0;seg[9]=0;
+  seg.set(tiffData,10);
+  return seg;
+}
+
+// ===== PNG → JPEG 转换（伪装成 .jpg 的 PNG 走这条路） =====
+
+function loadImageFromBuffer(buffer,mime){
+  return new Promise((resolve,reject)=>{
+    const blob=new Blob([buffer],{type:mime});
+    const url=URL.createObjectURL(blob);
+    const img=new Image();
+    img.onload=()=>{URL.revokeObjectURL(url);resolve(img)};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('图片解码失败（浏览器不支持该格式，或文件已损坏）'))};
+    img.src=url;
+  });
+}
+
+// piexifjs 要的有理数对格式，跟 decToDms() 给 tryInPlaceGps 用的整数三元组不是一回事
+function degToDmsRationalPiexif(deg){
+  const d=Math.floor(deg);
+  const mFloat=(deg-d)*60;
+  const m=Math.floor(mFloat);
+  const s=Math.round((mFloat-m)*60*100);
+  return [[d,1],[m,1],[s,100]];
+}
+
+async function convertPngToJpeg(buffer,lat,lon){
+  // 1. PNG 如果带 eXIf chunk，先把相机型号/拍摄时间读出来，canvas 重编码会把这些抹掉
+  let make='',model='',dateTime='',dateTimeOriginal='';
+  try{
+    const tags=ExifReader.load(buffer,{expanded:true});
+    const exif=tags.exif||{};
+    make=exif.Make?.description||'';
+    model=exif.Model?.description||'';
+    dateTime=exif.DateTime?.description||'';
+    dateTimeOriginal=exif.DateTimeOriginal?.description||exif.DateTimeDigitized?.description||'';
+  }catch(e){
+    // PNG 没有可读的 EXIF，很正常，只写 GPS
+  }
+  const hasOriginalExif=!!(make||model||dateTime||dateTimeOriginal);
+
+  // 2. 解码 PNG，画到 canvas，重新编码成 JPEG
+  const img=await loadImageFromBuffer(buffer,'image/png');
+  const canvas=document.createElement('canvas');
+  canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#FFFFFF';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0);
+  const dataUrl=canvas.toDataURL('image/jpeg',0.95);
+
+  // 3. 把原EXIF（如果有）+ 新GPS一起写回新JPEG
+  const zerothIfd={}, exifIfd={};
+  if(make) zerothIfd[piexif.ImageIFD.Make]=make;
+  if(model) zerothIfd[piexif.ImageIFD.Model]=model;
+  if(dateTime) zerothIfd[piexif.ImageIFD.DateTime]=dateTime;
+  if(dateTimeOriginal) exifIfd[piexif.ExifIFD.DateTimeOriginal]=dateTimeOriginal;
+  const gpsIfd={
+    [piexif.GPSIFD.GPSVersionID]:[2,3,0,0],
+    [piexif.GPSIFD.GPSLatitudeRef]: lat>=0?'N':'S',
+    [piexif.GPSIFD.GPSLatitude]: degToDmsRationalPiexif(Math.abs(lat)),
+    [piexif.GPSIFD.GPSLongitudeRef]: lon>=0?'E':'W',
+    [piexif.GPSIFD.GPSLongitude]: degToDmsRationalPiexif(Math.abs(lon)),
+  };
+  const exifBytes=piexif.dump({"0th":zerothIfd,"Exif":exifIfd,"GPS":gpsIfd});
+  const newDataUrl=piexif.insert(exifBytes,dataUrl);
+
+  // 4. dataURL → Uint8Array
+  const base64=newDataUrl.split(',')[1];
+  const bin=atob(base64);
+  const out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+
+  return {
+    ok:true,
+    data:out,
+    msg:`检测到 PNG 格式，已自动转换为 JPEG${hasOriginalExif?'（原始EXIF已保留）':'（原文件无EXIF可保留）'}`,
+  };
+}
+
+// ===== MP4 GPS Modification =====
+
+function findBox(data,offset,end,type){
+  let pos=offset;
+  while(pos<end-8){
+    const v=new DataView(data.buffer,data.byteOffset+pos);
+    let size=v.getUint32(0);
+    const t=String.fromCharCode(data[pos+4],data[pos+5],data[pos+6],data[pos+7]);
+    if(size===0) size=end-pos;
+    if(size<8||pos+size>end) break;
+    if(t===type) return {offset:pos,size:size};
+    pos+=size;
+  }
+  return null;
+}
+
+// Recursively find all boxes of a given type inside a container hierarchy
+const MP4_CONTAINERS=new Set(['moov','trak','mdia','minf','stbl','udta','edts','dinf','sinf','schi','ilst']);
+function findBoxesDeep(data,start,end,type){
+  const results=[];
+  let pos=start;
+  while(pos<end-8){
+    const v=new DataView(data.buffer,data.byteOffset+pos);
+    let size=v.getUint32(0);
+    const t=String.fromCharCode(data[pos+4],data[pos+5],data[pos+6],data[pos+7]);
+    if(size===0) size=end-pos;
+    if(size<8||pos+size>end) break;
+    if(t===type) results.push({offset:pos,size:size});
+    let childStart=pos+8;
+    // 'meta' has 4-byte version/flags before children
+    if(t==='meta') childStart=pos+12;
+    if(MP4_CONTAINERS.has(t)||t==='meta'){
+      results.push(...findBoxesDeep(data,childStart,pos+size,type));
+    }
+    pos+=size;
+  }
+  return results;
+}
+
+// After resizing moov (when moov is before mdat), all chunk offsets
+// pointing into mdat must be incremented by the size delta.
+function adjustChunkOffsets(out,moovOff,moovEnd,delta){
+  const v=new DataView(out.buffer,out.byteOffset);
+  // stco: 32-bit chunk offsets
+  for(const box of findBoxesDeep(out,moovOff+8,moovEnd,'stco')){
+    const cnt=v.getUint32(box.offset+12);
+    for(let i=0;i<cnt;i++){
+      const p=box.offset+16+i*4;
+      v.setUint32(p, v.getUint32(p)+delta);
+    }
+  }
+  // co64: 64-bit chunk offsets
+  for(const box of findBoxesDeep(out,moovOff+8,moovEnd,'co64')){
+    const cnt=v.getUint32(box.offset+12);
+    for(let i=0;i<cnt;i++){
+      const p=box.offset+16+i*8;
+      const hi=v.getUint32(p), lo=v.getUint32(p+4);
+      const val=hi*0x100000000+lo+delta;
+      v.setUint32(p, Math.floor(val/0x100000000));
+      v.setUint32(p+4, val>>>0);
+    }
+  }
+}
+
+function isMoovBeforeMdat(data){
+  const moov=findBox(data,0,data.length,'moov');
+  const mdat=findBox(data,0,data.length,'mdat');
+  return moov&&mdat&&moov.offset<mdat.offset;
+}
+
+function processMp4(buffer,lat,lon){
+  const data=new Uint8Array(buffer);
+  const moov=findBox(data,0,data.length,'moov');
+  if(!moov) return {ok:false,msg:'未找到moov box'};
+  const needOffsetFix=isMoovBeforeMdat(data);
+  const udta=findBox(data,moov.offset+8,moov.offset+moov.size,'udta');
+  if(!udta) return injectMp4Gps(data,moov,needOffsetFix,lat,lon);
+  const xyz=findBox(data,udta.offset+8,udta.offset+udta.size,'\xA9xyz');
+  if(xyz) return replaceMp4Xyz(data,xyz,udta,moov,needOffsetFix,lat,lon);
+  return addXyzToUdta(data,udta,moov,needOffsetFix,lat,lon);
+}
+
+function makeXyzPayload(lat,lon){
+  const la=(lat>=0?'+':'')+lat.toFixed(4);
+  const lo=(lon>=0?'+':'')+lon.toFixed(4);
+  const str=la+lo+'+0.000/'; // include altitude for compatibility
+  const enc=new TextEncoder();
+  const strBytes=enc.encode(str);
+  const atomSize=8+2+2+strBytes.length;
+  const buf=new Uint8Array(atomSize);
+  const v=new DataView(buf.buffer);
+  v.setUint32(0,atomSize);
+  buf[4]=0xA9;buf[5]=0x78;buf[6]=0x79;buf[7]=0x7A;
+  v.setUint16(8,strBytes.length);
+  v.setUint16(10,0);
+  buf.set(strBytes,12);
+  return buf;
+}
+
+function replaceMp4Xyz(data,xyz,udta,moov,needOffsetFix,lat,lon){
+  const newPayload=makeXyzPayload(lat,lon);
+  const diff=newPayload.length-xyz.size;
+  if(diff===0){
+    const out=new Uint8Array(data.buffer.slice(0));
+    out.set(newPayload,xyz.offset);
+    return {ok:true,data:out,msg:'视频GPS已修改'};
+  }
+  const out=new Uint8Array(data.length+diff);
+  out.set(data.subarray(0,xyz.offset));
+  out.set(newPayload,xyz.offset);
+  out.set(data.subarray(xyz.offset+xyz.size),xyz.offset+newPayload.length);
+  const v=new DataView(out.buffer);
+  v.setUint32(udta.offset,udta.size+diff);
+  v.setUint32(moov.offset,moov.size+diff);
+  if(needOffsetFix) adjustChunkOffsets(out,moov.offset,moov.offset+moov.size+diff,diff);
+  return {ok:true,data:out,msg:'视频GPS已修改'};
+}
+
+function addXyzToUdta(data,udta,moov,needOffsetFix,lat,lon){
+  const payload=makeXyzPayload(lat,lon);
+  const insertPos=udta.offset+udta.size;
+  const out=new Uint8Array(data.length+payload.length);
+  out.set(data.subarray(0,insertPos));
+  out.set(payload,insertPos);
+  out.set(data.subarray(insertPos),insertPos+payload.length);
+  const v=new DataView(out.buffer);
+  v.setUint32(udta.offset,udta.size+payload.length);
+  v.setUint32(moov.offset,moov.size+payload.length);
+  if(needOffsetFix) adjustChunkOffsets(out,moov.offset,moov.offset+moov.size+payload.length,payload.length);
+  return {ok:true,data:out,msg:'视频GPS已添加'};
+}
+
+function injectMp4Gps(data,moov,needOffsetFix,lat,lon){
+  const xyzPayload=makeXyzPayload(lat,lon);
+  const udtaSize=8+xyzPayload.length;
+  const udtaBox=new Uint8Array(udtaSize);
+  const uv=new DataView(udtaBox.buffer);
+  uv.setUint32(0,udtaSize);
+  udtaBox[4]=0x75;udtaBox[5]=0x64;udtaBox[6]=0x74;udtaBox[7]=0x61;
+  udtaBox.set(xyzPayload,8);
+  const insertPos=moov.offset+moov.size;
+  const out=new Uint8Array(data.length+udtaBox.length);
+  out.set(data.subarray(0,insertPos));
+  out.set(udtaBox,insertPos);
+  out.set(data.subarray(insertPos),insertPos+udtaBox.length);
+  const v=new DataView(out.buffer);
+  v.setUint32(moov.offset,moov.size+udtaBox.length);
+  if(needOffsetFix) adjustChunkOffsets(out,moov.offset,moov.offset+moov.size+udtaBox.length,udtaBox.length);
+  return {ok:true,data:out,msg:'视频GPS已注入'};
+}
+
+// ===== Execute =====
+
+async function execute(){
+  if(selectedLat===null||selectedLon===null){alert('请先在地图上选择目标位置');return}
+  if(!files.length){alert('请先添加文件');return}
+
+  const btn=document.getElementById('execBtn');
+  btn.disabled=true; btn.textContent='处理中...';
+  clearLog();
+  const useOffset=document.getElementById('offsetCheck').checked;
+  log(`目标: ${selectedLat.toFixed(6)}, ${selectedLon.toFixed(6)}${useOffset?' (随机偏移±500m)':''}`);
+  log('─'.repeat(36));
+
+  let ok=0,fail=0;
+  for(const file of files){
+    let lat=selectedLat, lon=selectedLon;
+    if(useOffset) [lat,lon]=randomOffset(lat,lon,500);
+
+    let result;
+    try{
+      // Use pre-read buffer (cloned to avoid mutation)
+      const buf=file.buffer.slice(0);
+      const det=detectFormat(buf);
+      if(det.fmt==='jpeg'){
+        result=processJpeg(buf,lat,lon);
+      }else if(det.fmt==='png'){
+        result=await convertPngToJpeg(buf,lat,lon);
+        if(result.ok) result.outName=file.name.replace(/\.[^.]*$/,'')+'.jpg';
+      }else if(det.fmt==='video'){
+        result=processMp4(buf,lat,lon);
+      }else if(det.fmt==='webp'){
+        result={ok:false,msg:'暂不支持 WebP 格式'};
+      }else if(det.fmt==='heic'){
+        // WebView(Blink) 不含 HEIF 解码器，canvas 解不出来，试了也是白试
+        result={ok:false,msg:'不支持 HEIC 格式，请在相机设置里关闭高效图片格式（HEIF）后重新拍摄'};
+      }else{
+        result={ok:false,msg:`未知文件格式 (head=${det.hex})`};
+      }
+    }catch(e){
+      result={ok:false,msg:'处理出错: '+e.message};
+    }
+
+    if(result.ok){
+      const outName=result.outName||file.name;
+      log(`✅ ${outName} → (${lat.toFixed(4)}, ${lon.toFixed(4)}) ${result.msg}`);
+      downloadFile(result.data, outName, result.outName?'image/jpeg':file.type);
+      ok++;
+    }else{
+      log(`❌ ${file.name} — ${result.msg}`);
+      fail++;
+    }
+    await new Promise(r=>setTimeout(r,300));
+  }
+
+  log('─'.repeat(36));
+  log(`完成: ${ok} 成功 / ${fail} 失败`);
+  btn.disabled=false; btn.textContent='✅ 修改定位并下载';
+}
+
+function guessMime(name,type){
+  if(type && type!=='application/octet-stream') return type;
+  const ext=name.split('.').pop().toLowerCase();
+  const map={jpg:'image/jpeg',jpeg:'image/jpeg',tif:'image/tiff',tiff:'image/tiff',
+             mp4:'video/mp4',mov:'video/quicktime','3gp':'video/3gpp',avi:'video/x-msvideo'};
+  return map[ext]||type||'application/octet-stream';
+}
+
+function downloadFile(data,name,type){
+  if(window.AndroidSaveFile){
+    // Android APK：通过原生桥分块保存到相册，避免大文件一次性 btoa 导致 OOM
+    const bytes=data instanceof Uint8Array?data:new Uint8Array(data);
+    const mime=guessMime(name,type);
+    try{
+      const sessionId=window.AndroidSaveFile.beginSave(name,mime);
+      if(!sessionId) throw new Error('无法创建保存会话（可能是存储权限或空间问题）');
+      const CHUNK=1048575; // ~1MiB，3的倍数以保证每块base64独立解码后能正确拼接
+      const STR_CHUNK=8192;
+      for(let i=0;i<bytes.length;i+=CHUNK){
+        const slice=bytes.subarray(i,Math.min(i+CHUNK,bytes.length));
+        let bin='';
+        for(let j=0;j<slice.length;j+=STR_CHUNK)
+          bin+=String.fromCharCode.apply(null,slice.subarray(j,Math.min(j+STR_CHUNK,slice.length)));
+        const ok=window.AndroidSaveFile.writeChunk(sessionId,btoa(bin));
+        if(!ok) throw new Error('写入分块失败');
+      }
+      const savedPath=window.AndroidSaveFile.endSave(sessionId);
+      if(!savedPath) throw new Error('保存失败（可能是存储权限或空间问题）');
+      log('   💾 已保存到相册「GPS定位修改」');
+    }catch(e){
+      log('   ⚠ 保存失败: '+e.message);
+    }
+  }else{
+    const blob=new Blob([data],{type});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }
+}
+
+</script>
+</body>
+</html>

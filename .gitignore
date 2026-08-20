@@ -1,0 +1,32 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.idea
+/kotlin-js-store
+.vscode
+
+*.jks
+*.keystore
+
+/.cache
+/.kotlin
+
+/gradle/libs.versions.updates.toml
+
+# adb screenshot / uiautomator ui-dump scratch files that pile up at repo root during on-device
+# testing sessions (screenshots pulled via adb, uiautomator dump.xml pulls) - not source, root-
+# scoped so this doesn't touch real resource/asset .png or .xml files elsewhere in the tree.
+/*.png
+/*.xml
