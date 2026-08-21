@@ -821,22 +821,16 @@ private fun ChapterItem(
     // heading keeps whatever size the source Word doc actually used (or whatever the user set)
     // regardless of what "默认字号" is doing to plain body text.
     //
-    // Capped at 1.5x the body's own display size (2026-08-14): this document's real stored
-    // editZoomScale/subtitleStyle.fontSizeSp/overallScale combine to a genuinely huge value
-    // (confirmed on-device: 59.7sp computed vs. 36.7sp in view mode for the same document) that
-    // overflows the whole heading Row off-screen in edit mode - a plain Text() can wrap to a
-    // second line when that happens, but the edit-mode heading is a singleLine BasicTextField and
-    // can't. Tried containing the overflow instead of capping the size first (weight()+
-    // horizontalScroll directly on the field, then the same wrapped in an outer Box, then adding
-    // clipToBounds() on top of that) - none of the three visibly clipped/scrolled it on-device,
-    // for a reason not root-caused (BasicTextField's own internal single-line layout apparently
-    // doesn't respect an ancestor clip/scroll the way plain content does - confirmed a hardcoded
-    // 16sp on the same field renders correctly with no overflow, so the width constraint itself
-    // isn't broken, only containing an oversized field's paint is). A cap read the same way in
-    // both the Text() and BasicTextField branches (same headingStyle, still one calculation, still
-    // "统一三态" per the original ask) sidesteps needing that containment to actually work.
-    val subtitleDisplaySizeSp = (subtitleStyle.fontSizeSp * settings.overallScale * zoomScale)
-        .coerceAtMost(displayFontSizeSp * 1.5f)
+    // 2026-08-21 - 这里原本有一个 `.coerceAtMost(displayFontSizeSp * 1.5f)`，即"副标题最大不超过
+    // 正文字号的 1.5 倍"。**那是个 bug，已删除。** 用"正文字号的倍数"当上限没有道理：正文默认字号
+    // 往小调，副标题上限跟着缩水——用户把正文设成 16sp 时上限只有 24sp，于是副标题滑块从 24 拖到
+    // 72sp 屏幕上纹丝不动，整个滑块看起来是坏的（真机复现确认）。
+    //
+    // 当初加封顶是为了绕开另一个问题：编辑态的副标题输入框是 singleLine，字号一大就溢出屏幕，而
+    // 且试过的三种容纳办法（horizontalScroll、外层 Box、clipToBounds）都没能在真机上生效。现在
+    // 改成从根上解决——让那个输入框可以换行（见 ChapterHeading 里的 softWrap 说明），溢出问题
+    // 消失，就不需要用限制可选范围的方式去回避它了。滑块自己的 12..72sp 就是唯一上限。
+    val subtitleDisplaySizeSp = subtitleStyle.fontSizeSp * settings.overallScale * zoomScale
     val headingStyle = TextStyle(
         fontSize = subtitleDisplaySizeSp.sp,
         lineHeight = (subtitleDisplaySizeSp * settings.lineHeightMultiplier).sp,
@@ -1084,20 +1078,27 @@ private fun ChapterHeading(
                 }
             }
             Spacer(Modifier.width(2.dp))
-            // See headingStyle's own doc comment (in ChapterItem, above) for why `style` itself
-            // is now capped at 1.5x body size - overflow containment (horizontalScroll/
-            // clipToBounds, tried directly on this field and wrapped in an outer Box) didn't
-            // visibly work on-device, so the fix is upstream of this composable now.
+            // 2026-08-21 - `singleLine` 从 true 改成 false，让副标题可以折行。
+            //
+            // 为什么要改：singleLine 的输入框不会换行，副标题字号一大就横着溢出屏幕。以前是靠
+            // "把字号封顶在正文字号的 1.5 倍"去回避这个溢出，代价是副标题字号滑块大部分行程失效
+            // （见 ChapterItem 里 subtitleDisplaySizeSp 的说明）。现在让它自然折行，溢出问题从根
+            // 上没有了，封顶也就删掉了。查看态那一支本来就是普通 Text，一直是会折行的，这次改完
+            // 编辑态和查看态的行为终于一致。
+            //
+            // 数据上仍然保持"副标题是一行文本"：下面 onValueChange 里把换行符过滤掉，所以用户按
+            // 回车不会真的在标题里插入换行，只是显示上允许折行。
             BasicTextField(
                 value = chapter.subtitle,
-                onValueChange = { newValue ->
+                onValueChange = { raw ->
+                    val newValue = raw.replace("\n", "").replace("\r", "")
                     TeleprompterObserveLog.log(
                         "subtitle onValueChange, chapterId=${chapter.id}, newValue=\"$newValue\" (len=${newValue.length})",
                     )
                     vm.renameChapterSubtitle(docId, chapter.id, newValue)
                 },
                 textStyle = style.copy(color = explicitColor ?: MaterialTheme.colorScheme.onSurface),
-                singleLine = true,
+                singleLine = false,
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
                     .weight(1f)
