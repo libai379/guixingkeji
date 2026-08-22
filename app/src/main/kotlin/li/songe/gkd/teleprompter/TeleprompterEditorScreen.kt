@@ -810,9 +810,19 @@ private fun ChapterItem(
     // those now that imports carry explicit sizes.
     val displayFontSizeSp = settings.fontSizeSp * settings.overallScale * zoomScale
     val forcedAlign = settings.textAlignMode.toComposeAlignOrNull()
+    // 2026-08-22 行距解耦（方案 A，详见 TeleprompterTextScaling.kt 头部）：
+    // 倍数 == 1.0 时 lineHeight 留空，让系统按每行实际字形逐行排版——这是唯一能做到逐行精确的
+    // 状态，而且是默认状态。倍数 != 1.0 时这里给的是**兜底值**：只有"既没有段落级行距、段内也
+    // 一个显式字号都没有"的段落才会落到它头上（也就是原生新建、走正文默认字号的文稿）。Word
+    // 导入那些自带字号的段落，由 scaledForDisplay 按"段内最大字号 × 倍数"逐段覆盖掉这个值。
+    val bodyLineHeight = if (settings.lineHeightMultiplier == 1f) {
+        TextUnit.Unspecified
+    } else {
+        (displayFontSizeSp * settings.lineHeightMultiplier).sp
+    }
     val bodyStyle = TextStyle(
         fontSize = displayFontSizeSp.sp,
-        lineHeight = (displayFontSizeSp * settings.lineHeightMultiplier).sp,
+        lineHeight = bodyLineHeight,
         fontFamily = composeFontFamily,
         textAlign = forcedAlign ?: TextAlign.Unspecified,
     )
@@ -979,11 +989,17 @@ private fun ChapterItem(
                     // must never be fed back into the live editable state. The focused/editing
                     // chapter (BasicRichTextEditor above) intentionally does NOT get this pass -
                     // WYSIWYG while actively typing, matching what's actually stored.
-                    val displayText = remember(state.annotatedString, settings.overallScale, settings.lineHeightMultiplier, forcedAlign) {
+                    val displayText = remember(
+                        state.annotatedString, settings.overallScale, settings.lineHeightMultiplier,
+                        forcedAlign, displayFontSizeSp,
+                    ) {
                         state.annotatedString.scaledForDisplay(
                             sizeScale = settings.overallScale,
                             lineHeightScale = settings.lineHeightMultiplier,
                             forcedAlign = forcedAlign,
+                            // 段内一个显式字号都没有时（原生新建的文稿）用它兜底，保证这类文稿的
+                            // 行距依然跟着"正文默认字号"走。
+                            fallbackFontSizeSp = displayFontSizeSp,
                         )
                     }
                     Text(

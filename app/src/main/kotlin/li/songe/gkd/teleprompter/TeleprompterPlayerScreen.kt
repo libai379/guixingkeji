@@ -84,6 +84,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
@@ -400,10 +401,17 @@ fun TeleprompterPlayerScreen(
     // fontSizeSp alone can no longer reach now that imports carry explicit sizes.
     val displayFontSizeSp = settings.fontSizeSp * settings.overallScale * playerZoom
     val forcedAlign = settings.textAlignMode.toComposeAlignOrNull()
+    // 2026-08-22 行距解耦（方案 A，见 TeleprompterTextScaling.kt 头部）——跟编辑页同一处理：
+    // 倍数 1.0 时留空走逐行自然排版；否则这里只作为"段内无显式字号"段落的兜底。
+    val bodyLineHeight = if (settings.lineHeightMultiplier == 1f) {
+        TextUnit.Unspecified
+    } else {
+        (displayFontSizeSp * settings.lineHeightMultiplier).sp
+    }
     val textStyle = TextStyle(
         color = textColor,
         fontSize = displayFontSizeSp.sp,
-        lineHeight = (displayFontSizeSp * settings.lineHeightMultiplier).sp,
+        lineHeight = bodyLineHeight,
         fontFamily = doc.fontFamily.toComposeFontFamily(),
         textAlign = forcedAlign ?: TextAlign.Unspecified,
     )
@@ -538,11 +546,15 @@ fun TeleprompterPlayerScreen(
                 // settings-page multipliers, and forces alignment if the setting isn't
                 // FollowDocument. Never fed back into readState - display-only, per
                 // TeleprompterTextScaling.kt's own doc.
-                val displayText = remember(readState.annotatedString, settings.overallScale, settings.lineHeightMultiplier, forcedAlign) {
+                val displayText = remember(
+                    readState.annotatedString, settings.overallScale, settings.lineHeightMultiplier,
+                    forcedAlign, displayFontSizeSp,
+                ) {
                     readState.annotatedString.scaledForDisplay(
                         sizeScale = settings.overallScale,
                         lineHeightScale = settings.lineHeightMultiplier,
                         forcedAlign = forcedAlign,
+                        fallbackFontSizeSp = displayFontSizeSp,
                     )
                 }
                 Box(Modifier.fillMaxWidth()) {
