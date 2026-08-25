@@ -57,11 +57,9 @@
         <!-- 2026-08-25 - 接住"打开方式"选中 .guiyue.json 预设文件。裸 mimeType 不够用：不同发送方
              （微信保存/文件管理器/邮件……）给这个自定义后缀猜出来的 MIME 五花八门，不像 docx 那样
              有个全行业公认的注册值可以直接匹配（见 TeleprompterActivity 那条 filter 的注释）。所以
-             这里 mimeType 用 "*/*" 兜底、靠 pathPattern 卡文件名后缀。pathPattern 写的是裸点号
-             ".guiyue.json" 不是 "\\.guiyue\\.json"：minSdk 26，反斜杠转义要到 API 31 才支持
-             （PATTERN_ADVANCED_GLOB），这个版本以下 "." 本来就等价于"任意单字符"通配符，裸写反而
-             是兼容写法——顺带的代价是也会匹配到类似"fooXguiyueXjson"这种理论上不存在的文件名，
-             真实场景里不会撞上，可接受。 -->
+             这里 mimeType 用 "*/*" 兜底、靠 pathSuffix 精确卡文件名后缀——minSdk 提到 33 之后
+             pathSuffix（API 31+ 的 PATTERN_SUFFIX）随时能用，不用再靠"裸点号当任意字符通配符"那种
+             为兼容老版本 PatternMatcher 才需要的旧写法，也不会再有误配到无关文件名的可能。 -->
         <activity
             android:name=".glasstuning.GlassPresetImportActivity"
             android:exported="true"
@@ -75,7 +73,7 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
-                <data android:pathPattern=".*.guiyue.json" />
+                <data android:pathSuffix=".guiyue.json" />
             </intent-filter>
         </activity>
         <activity

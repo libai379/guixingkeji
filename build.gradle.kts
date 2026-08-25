@@ -24,7 +24,12 @@ plugins {
 object Cfg {
     val compileSdk get() = 37
     val buildToolsVersion get() = "37.0.0"
-    val minSdk get() = 26
+    // 2026-08-25 - 26 是从上游 GKD 原样继承的，从没在这个项目里重新评估过。液态玻璃（这个应用
+    // 最大的视觉卖点）已经在 8 个文件里硬性要求 API 33，低于 33 的设备本来就只能看阉割版外观。
+    // 用户明确表示目前几个使用者都是现代机型、不用迁就极端老设备，改到 33 让 minSdk 对齐应用
+    // 实际已经在要求的门槛，顺带换来 android:pathSuffix 这类 API 31+ 才有的精确匹配能力（见
+    // GlassPresetImportActivity 的 intent-filter），不用再靠"点号当通配符"那种老式写法凑合。
+    val minSdk get() = 33
     val targetSdk get() = compileSdk
     val sourceVersion = JavaVersion.VERSION_11
     val targetVersion get() = sourceVersion
