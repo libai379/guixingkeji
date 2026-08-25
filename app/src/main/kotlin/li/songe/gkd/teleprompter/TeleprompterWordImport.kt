@@ -113,6 +113,10 @@ suspend fun importDocxFile(uri: Uri): Result<DocxImportSummary> = withContext(Di
         var documentXml: String? = null
         var stylesXml: String? = null
         var themeXml: String? = null
+        // 2026-08-25 - 只有本 app 自己导出的 docx 才会带这个部件（见 TeleprompterDocxSettings.kt），
+        // 纯 Word/WPS 原生文档没有，entry 名字压根不会出现，customSettingsXml 保持 null，走原有
+        // "用本地设置"的路径，不受影响。
+        var customSettingsXml: String? = null
         var entryCount = 0
         try {
             ZipInputStream(bytes.inputStream()).use { zip ->
@@ -123,6 +127,7 @@ suspend fun importDocxFile(uri: Uri): Result<DocxImportSummary> = withContext(Di
                         "word/document.xml" -> documentXml = zip.readBytes().toString(Charsets.UTF_8)
                         "word/styles.xml" -> stylesXml = zip.readBytes().toString(Charsets.UTF_8)
                         "word/theme/theme1.xml" -> themeXml = zip.readBytes().toString(Charsets.UTF_8)
+                        DOCX_SETTINGS_CUSTOM_XML_PATH -> customSettingsXml = zip.readBytes().toString(Charsets.UTF_8)
                     }
                     zip.closeEntry()
                     entry = zip.nextEntry
@@ -145,7 +150,7 @@ suspend fun importDocxFile(uri: Uri): Result<DocxImportSummary> = withContext(Di
         val xml = documentXml
             ?: return@withContext Result.failure(DocxParseException("压缩包里没有 word/document.xml，这不是有效的 .docx 文件"))
 
-        val summary = parseDocxDocument(xml, stylesXml, themeXml, title)
+        val summary = parseDocxDocument(xml, stylesXml, themeXml, title, customSettingsXml)
         Result.success(summary)
     } catch (e: Exception) {
         LogUtils.d("docx import failed, uri=$uri", e, tag = TAG)
@@ -166,6 +171,8 @@ suspend fun importDocxAndCreateDocument(
             summary.chapters,
             summary.fontFamily,
             summary.subtitleStyle,
+            summary.displayOverrides,
+            summary.editZoomScale,
         )
         docId to summary
     }
@@ -182,5 +189,13 @@ fun DocxImportSummary.describe(): String {
         if (skippedCount > 0) append("，跳过 $skippedCount 个不支持的元素")
         append("，字体已统一为 $fontLabel")
         dominantFontName?.let { append("（原字体：$it）") }
+        // 2026-08-25 - 不打断操作的轻量提示，跟其余内容拼在同一条 toast 里，不单开一个对话框。
+        // 只有重新导入本 app 自己导出的 docx 才会出现这句；纯 Word 来源、或本 app 更早版本导出
+        // （还没有这个自定义部件）的文件，这几个字段全是默认值，这句不出现，行为等同现在。
+        val hasCustomDisplaySettings = editZoomScale != null || listOf(
+            displayOverrides.fontSizeSp, displayOverrides.overallScale, displayOverrides.lineHeightMultiplier,
+            displayOverrides.contentWidthPortrait, displayOverrides.contentWidthLandscape,
+        ).any { it != null } || displayOverrides.textAlignMode != null
+        if (hasCustomDisplaySettings) append("，已应用文档自带的显示设置")
     }
 }

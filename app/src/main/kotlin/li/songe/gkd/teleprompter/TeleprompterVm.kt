@@ -277,6 +277,22 @@ class TeleprompterVm : ViewModel() {
         }
     }
 
+    // 2026-08-25 - 写入路径照抄 updateSubtitleStyle 的形状：按 docId 定位、替换 displayOverrides
+    // 这一部分、其余字段不动。跟 updateSettings（改全局）是两个独立的写入口，不合并成一个——这
+    // 五项现在到底是在改"这篇文档自己的"还是"全局的"，必须由调用方（设置面板每一项的切换开关）
+    // 显式选择走哪一个函数，不能靠隐式判断。
+    fun updateDisplayOverrides(docId: String, mutate: (TeleprompterDisplayOverrides) -> TeleprompterDisplayOverrides) {
+        updateTeleprompterLibrary { lib ->
+            lib.copy(documents = lib.documents.map { doc ->
+                if (doc.id == docId) {
+                    doc.copy(displayOverrides = mutate(doc.displayOverrides), updatedAt = System.currentTimeMillis())
+                } else {
+                    doc
+                }
+            })
+        }
+    }
+
     /** "降级为正文" (heading long-press) and the outline panel's "并入上一章" both land here -
      * same operation, two entry points. No-op if [chapterId] is the document's first chapter
      * (nothing above it to merge into). */
@@ -387,18 +403,29 @@ class TeleprompterVm : ViewModel() {
 
     /** New document from a parsed Word import - chapters/title/font/subtitle style already
      * resolved by the parser (the last one from the source doc's own heading formatting - see
-     * TeleprompterWordParser's heading-run capture). */
+     * TeleprompterWordParser's heading-run capture).
+     *
+     * [displayOverrides]/[editZoomScale] (2026-08-25) come from a customXml part this app itself
+     * wrote on a previous export (see TeleprompterDocxSettings.kt) - default/null for plain Word
+     * sources, which leaves the new document following global settings exactly like before this
+     * feature existed. Written straight into THIS document only, never into library.settings -
+     * that's the entire point: opening someone else's differently-styled export must not change
+     * how every other document in this library looks. */
     fun createDocumentFromImport(
         title: String,
         chapters: List<TeleprompterChapter>,
         fontFamily: TeleprompterFontFamily,
         subtitleStyle: TeleprompterSubtitleStyle,
+        displayOverrides: TeleprompterDisplayOverrides = TeleprompterDisplayOverrides(),
+        editZoomScale: Float? = null,
     ): String {
         val doc = TeleprompterDocument(
             title = title,
             chapters = chapters.ifEmpty { listOf(TeleprompterChapter()) },
             fontFamily = fontFamily,
             subtitleStyle = subtitleStyle,
+            displayOverrides = displayOverrides,
+            editZoomScale = editZoomScale ?: TeleprompterDocument().editZoomScale,
         )
         updateTeleprompterLibrary { it.copy(documents = it.documents + doc) }
         return doc.id

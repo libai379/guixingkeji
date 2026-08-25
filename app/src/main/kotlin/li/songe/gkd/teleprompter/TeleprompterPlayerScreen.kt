@@ -135,7 +135,10 @@ fun TeleprompterPlayerScreen(
         LaunchedEffect(Unit) { onClose() }
         return
     }
-    val settings = library.settings
+    // 2026-08-25 - 播放页对这五项（字号/整体缩放/行距/对齐方式/内容宽度）是纯只读透传，零独立
+    // 开关（已核实：播放页所有可交互控件——关闭/镜像/方向菜单/帮助/滚动速度——没有一个碰这五项）。
+    // 唯一绑定点，效果跟编辑页那边的 effectiveSettings 是同一个函数、同一份回退逻辑。
+    val settings = doc.effectiveSettings(library.settings)
 
     var isPlaying by remember { mutableStateOf(true) }
     var speed by remember { mutableStateOf(settings.scrollSpeed.coerceIn(0.2f, 3f)) }

@@ -293,7 +293,9 @@ fun TeleprompterLibraryScreen(
                 }
                 RowMenuItem(Icons.Filled.Description, "导出为 Word", backdrop) {
                     menuForDocId = null
-                    scope.launch { activity.exportTeleprompterDocumentAsWord(menuDoc) }
+                    scope.launch {
+                        activity.exportTeleprompterDocumentAsWord(menuDoc, menuDoc.effectiveSettings(library.settings))
+                    }
                 }
                 RowMenuItem(Icons.Filled.Delete, "删除", backdrop) {
                     menuForDocId = null

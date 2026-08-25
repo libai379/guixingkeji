@@ -99,9 +99,15 @@ private fun documentExportDocxFileName(doc: TeleprompterDocument): String {
     return "$safeTitle.docx"
 }
 
-suspend fun Activity.exportTeleprompterDocumentAsWord(doc: TeleprompterDocument) = withContext(Dispatchers.Default) {
+// 2026-08-25 - effectiveSettings 由调用方传入（TeleprompterLibraryScreen 那边算 doc.effectiveSettings
+// (library.settings)），这里不重新读一遍 - 这个函数本身没有拿到 library 的路径，且"用哪份合并后的
+// 有效值"这件事只该有一处判断（TeleprompterModel.kt 的 effectiveSettings()），不在这再猜一遍。
+suspend fun Activity.exportTeleprompterDocumentAsWord(
+    doc: TeleprompterDocument,
+    effectiveSettings: TeleprompterSettings,
+) = withContext(Dispatchers.Default) {
     try {
-        val bytes = buildDocxBytes(doc)
+        val bytes = buildDocxBytes(doc, effectiveSettings)
         val fileName = documentExportDocxFileName(doc)
         val file = sharedDir.resolve(fileName)
         file.writeBytes(bytes)

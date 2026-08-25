@@ -4,6 +4,23 @@ import kotlinx.serialization.Serializable
 import li.songe.gkd.glassui.GlassBackgroundConfig
 import java.util.UUID
 
+// 2026-08-25 - 补齐架构缺口：正文默认字号/整体缩放/行距/对齐方式/内容宽度这五项，此前只存在
+// TeleprompterSettings（库级、全部文档共用一份）里，没有"这一篇文档自己的样子"这个概念。这在
+// docx 导出携带文档设置这个需求下会直接造成数据污染——如果不做这层，导入一份别人发的、字号行距
+// 不一样的 docx，改的会是全局设置，库里其余所有文档会跟着一起变样，而不是只有这一篇文档变。
+//
+// 全部字段可空：null = 没有覆盖，跟随全局 TeleprompterSettings 里对应的值。有值 = 这篇文档自己的
+// 设定，忽略全局值。
+@Serializable
+data class TeleprompterDisplayOverrides(
+    val fontSizeSp: Float? = null,
+    val overallScale: Float? = null,
+    val lineHeightMultiplier: Float? = null,
+    val textAlignMode: TeleprompterTextAlignMode? = null,
+    val contentWidthPortrait: Float? = null,
+    val contentWidthLandscape: Float? = null,
+)
+
 @Serializable
 data class TeleprompterChapter(
     val id: String = UUID.randomUUID().toString(),
@@ -77,6 +94,9 @@ data class TeleprompterDocument(
     // heading paragraphs actually looked like (see TeleprompterWordParser), so different
     // documents keep their own original heading look instead of all sharing one global default.
     val subtitleStyle: TeleprompterSubtitleStyle = TeleprompterSubtitleStyle(),
+    // 2026-08-25 - 这篇文档自己覆盖的显示设置，默认全部 null（不覆盖，跟随全局）。见
+    // TeleprompterDisplayOverrides 自己的文档注释。
+    val displayOverrides: TeleprompterDisplayOverrides = TeleprompterDisplayOverrides(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -142,6 +162,23 @@ data class TeleprompterSettings(
     // user tunes this live. See TeleprompterSettingsWindow's tunedGlass() call for the color/alpha
     // mapping.
     val settingsPanelOpacity: Float = 0.18f,
+)
+
+// 2026-08-25 - 五项"文档级可覆盖、未设置跟随全局"字段的**唯一**回退合并点。编辑页/播放页两处
+// 绑定 settings 的地方都只调用这一个函数，不在各自的读取路径上各写一遍"文档级有值用文档级，
+// 没有就用全局"的判断——重复写两遍，以后改一处漏了另一处，就是这个项目已经因为类似疏漏真实
+// 出过 bug 的那种情况（见 docs/PITFALLS.md）。
+//
+// 返回的还是一个完整的 TeleprompterSettings：其余不参与这次改造的字段（scrollSpeed、
+// backgroundColorArgb、settingsPanelOpacity 等）原样从 global 透传，调用方原有的读取代码
+// （ChapterItem 内部一大串 settings.xxx）不用感知这层合并，也就不用逐处修改。
+fun TeleprompterDocument.effectiveSettings(global: TeleprompterSettings): TeleprompterSettings = global.copy(
+    fontSizeSp = displayOverrides.fontSizeSp ?: global.fontSizeSp,
+    overallScale = displayOverrides.overallScale ?: global.overallScale,
+    lineHeightMultiplier = displayOverrides.lineHeightMultiplier ?: global.lineHeightMultiplier,
+    textAlignMode = displayOverrides.textAlignMode ?: global.textAlignMode,
+    contentWidthPortrait = displayOverrides.contentWidthPortrait ?: global.contentWidthPortrait,
+    contentWidthLandscape = displayOverrides.contentWidthLandscape ?: global.contentWidthLandscape,
 )
 
 @Serializable

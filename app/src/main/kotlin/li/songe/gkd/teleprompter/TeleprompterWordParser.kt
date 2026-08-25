@@ -38,6 +38,11 @@ data class DocxImportSummary(
     // 18pt bold red should keep looking like that after import, not silently reset to whatever
     // this app's own default happens to be.
     val subtitleStyle: TeleprompterSubtitleStyle,
+    // 2026-08-25 - 只有本 app 自己导出的 docx（带 customXml 自定义部件）才会非空/非默认，纯 Word
+    // 来源的文档这两项保持默认（displayOverrides 全 null、editZoomScale 为 null），createDocumentFromImport
+    // 那边据此决定"要不要覆盖新文档的显示设置"，不去改全局设置。
+    val displayOverrides: TeleprompterDisplayOverrides = TeleprompterDisplayOverrides(),
+    val editZoomScale: Float? = null,
 )
 
 class DocxParseException(message: String) : Exception(message)
@@ -587,7 +592,11 @@ fun parseDocxDocument(
     stylesXml: String?,
     themeXml: String?,
     fallbackTitle: String,
+    // 2026-08-25 - 见 DocxImportSummary 的同名字段。默认 null，两个既有单元测试调用点（只传前
+    // 4 个参数）不用改。
+    customSettingsXml: String? = null,
 ): DocxImportSummary {
+    val docxSettings = customSettingsXml?.let(::parseDocxSettingsXml)
     val styles = stylesXml?.let(::parseStyles) ?: emptyMap()
     val themeFonts = themeXml?.let(::parseThemeFonts) ?: emptyMap()
     val defaultParagraphStyleId = stylesXml?.let(::findDefaultParagraphStyleId)
@@ -713,6 +722,11 @@ fun parseDocxDocument(
         fontFamily = appFontFamily,
         dominantFontName = dominantFont,
         headingLevelUsed = splitLevel,
-        subtitleStyle = subtitleStyle,
+        // 自定义部件里存的副标题样式优先于从标题段落扫描出来的那个——只有重新导入本 app 自己
+        // 导出的文件才会两者都有，这时候自定义部件是更准确的来源（扫描是启发式的，这个是原样
+        // 存的数值）。纯 Word 来源没有自定义部件，docxSettings 为 null，走原来的扫描结果不变。
+        subtitleStyle = docxSettings?.subtitleStyle ?: subtitleStyle,
+        displayOverrides = docxSettings?.displayOverrides ?: TeleprompterDisplayOverrides(),
+        editZoomScale = docxSettings?.editZoomScale,
     )
 }

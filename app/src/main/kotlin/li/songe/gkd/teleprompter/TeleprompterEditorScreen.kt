@@ -249,6 +249,11 @@ fun TeleprompterEditorScreen(
         LaunchedEffect(Unit) { onOpenLibrary() }
         return
     }
+    // 2026-08-25 - 正文默认字号/整体缩放/行距/对齐方式/内容宽度这五项的**唯一**合并点，本屏幕
+    // 所有读取这五项的地方（273 行内容宽度、426 行视口裁剪快照、525 行 ChapterItem 调用、727 行
+    // 设置面板本身）都从这一个变量读，不各自重新判断"文档级有没有覆盖"——回退逻辑集中在
+    // TeleprompterModel.kt 的 effectiveSettings() 里，这里只是唯一的调用点。
+    val effectiveSettings = doc.effectiveSettings(library.settings)
     val focusedChapterId by vm.focusedChapterId.collectAsState()
     // Default view mode: nothing in the document responds to taps, so a mistouch during a live
     // broadcast can't edit the script. Entering edit mode is an explicit, deliberate action.
@@ -270,7 +275,7 @@ fun TeleprompterEditorScreen(
     // when the device actually rotates.
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val contentWidthFraction = library.settings.contentWidthFraction(isLandscape)
+    val contentWidthFraction = effectiveSettings.contentWidthFraction(isLandscape)
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     // Outline "jump" needs a target scroll offset, but positionInParent() is relative to the
@@ -424,7 +429,7 @@ fun TeleprompterEditorScreen(
             // remember(bodyDisplayDragActive) 在它刚变 true 的那一刻捕获一次当前值，此后这个 key
             // 不变，remember 就不会再刷新，天然冻结到松手为止。
             val frozenBodyDisplay = remember(bodyDisplayDragActive) {
-                if (bodyDisplayDragActive) Triple(library.settings, zoomScale, doc.subtitleStyle) else null
+                if (bodyDisplayDragActive) Triple(effectiveSettings, zoomScale, doc.subtitleStyle) else null
             }
             var viewportHeightPx by remember { mutableIntStateOf(0) }
             // 上下各留一屏缓冲，避免拖动中间稍微滚动一下就露出"还没重排"的旧文字。只在真的有滑块
@@ -522,7 +527,7 @@ fun TeleprompterEditorScreen(
                                     isEditMode = isEditMode,
                                     isFirstChapter = index == 0,
                                     isFocused = isThisChapterFocused,
-                                    settings = if (useLiveBodyDisplay) library.settings else frozenBodyDisplay!!.first,
+                                    settings = if (useLiveBodyDisplay) effectiveSettings else frozenBodyDisplay!!.first,
                                     fontFamily = doc.fontFamily,
                                     subtitleStyle = if (useLiveBodyDisplay) doc.subtitleStyle else frozenBodyDisplay!!.third,
                                     zoomScale = if (useLiveBodyDisplay) zoomScale else frozenBodyDisplay!!.second,
@@ -724,8 +729,13 @@ fun TeleprompterEditorScreen(
         if (settingsOpen) {
             TeleprompterSettingsWindow(
                 backdrop = editorBackdrop,
-                settings = library.settings,
+                // 显示用：合并后的有效值（文档覆盖了就是覆盖值，没覆盖就是全局值）。
+                settings = effectiveSettings,
+                // 全局写入口 - 五项里"跟随全局"状态下的滑块走这条（跟改动前完全一样）。
                 onUpdate = vm::updateSettings,
+                // 文档级写入口 - 五项里"自定义"状态下的滑块走这条，只改这一篇文档，不碰全局。
+                displayOverrides = doc.displayOverrides,
+                onDisplayOverridesChange = { mutate -> vm.updateDisplayOverrides(doc.id, mutate) },
                 fontFamily = doc.fontFamily,
                 onFontFamilyChange = { vm.updateDocumentFontFamily(doc.id, it) },
                 editZoomScale = doc.editZoomScale,
@@ -1820,11 +1830,41 @@ internal fun BoxScope.TeleprompterOutlinePanel(
  * closes the window on an outside tap); closing removes this composable and taps reach the
  * document again on their own, no extra bookkeeping needed.
  */
+// 2026-08-25 - 五项"文档级可覆盖"字段共用同一个开关 UI，不是每处单独画一遍——五处都用这一个
+// 组件，行为不一致的风险就只剩"这一个组件本身写错"，不会出现"改了第一处、后面四处照抄时抄漏了
+// 一行"这种情况。
+@Composable
+private fun DisplayOverrideSwitch(
+    isCustom: Boolean,
+    onToggle: (Boolean) -> Unit,
+    backdrop: Backdrop,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (isCustom) "这篇文档单独设置" else "跟随全局设置",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        LiquidToggle(selected = { isCustom }, onSelect = onToggle, backdrop = backdrop)
+    }
+}
+
 @Composable
 private fun TeleprompterSettingsWindow(
     backdrop: Backdrop,
+    // 合并后的有效值（用来显示），不是原始的全局值 - 调用方传的是 doc.effectiveSettings(...)。
     settings: TeleprompterSettings,
+    // 全局写入口，五项里"跟随全局"状态下用这个（改动前所有其它非五项字段也走这个，不变）。
     onUpdate: ((TeleprompterSettings) -> TeleprompterSettings) -> Unit,
+    // 2026-08-25 - 文档级写入口，五项里"自定义"状态下用这个。displayOverrides 是这篇文档自己的
+    // 原始覆盖状态（哪几项是 null/跟随全局、哪几项有自己的值），每项滑块旁边的切换开关靠它判断
+    // 当前是哪种状态。
+    displayOverrides: TeleprompterDisplayOverrides,
+    onDisplayOverridesChange: ((TeleprompterDisplayOverrides) -> TeleprompterDisplayOverrides) -> Unit,
     fontFamily: TeleprompterFontFamily,
     onFontFamilyChange: (TeleprompterFontFamily) -> Unit,
     editZoomScale: Float,
@@ -1942,7 +1982,16 @@ private fun TeleprompterSettingsWindow(
             Text("正文默认字号 ${settings.fontSizeSp.toInt()}sp（只对没有明确字号的正文生效。从 Word 导入的内容通常自带字号，不受此项影响，请用『整体缩放』调整）")
             LiquidSlider(
                 value = { settings.fontSizeSp },
-                onValueChange = { v -> onBodyDragStart(); onUpdate { it.copy(fontSizeSp = v) } },
+                onValueChange = { v ->
+                    onBodyDragStart()
+                    // 2026-08-25 - 开关在"自定义"状态就写文档级覆盖，否则走原来的全局写入口，行为
+                    // 完全不变。
+                    if (displayOverrides.fontSizeSp != null) {
+                        onDisplayOverridesChange { it.copy(fontSizeSp = v) }
+                    } else {
+                        onUpdate { it.copy(fontSizeSp = v) }
+                    }
+                },
                 onValueChangeFinished = onBodyDragEnd,
                 backdrop = backdrop,
                 valueRange = 16f..72f,
@@ -1953,6 +2002,15 @@ private fun TeleprompterSettingsWindow(
                 // 的实时跟手，见 onBodyDragStart/onBodyDragEnd 和 docs/PITFALLS.md「提词器正文滑块
                 // 拖动卡顿」的更新记录。
             )
+            DisplayOverrideSwitch(
+                isCustom = displayOverrides.fontSizeSp != null,
+                onToggle = { checked ->
+                    // 打开开关那一刻，把当前正在显示的（合并后的）值原样写进文档覆盖，不让滑块跳
+                    // 一下；关闭时清空覆盖，自然回落到全局值。
+                    onDisplayOverridesChange { it.copy(fontSizeSp = if (checked) settings.fontSizeSp else null) }
+                },
+                backdrop = backdrop,
+            )
 
             // "导入文档偏小时整体放大，同时保留原文的大小对比关系" - unlike 默认字号 above, this
             // multiplies onto EVERY文字的字号, including Word 导入 run 自带的明确字号 (层叠解析后
@@ -1961,10 +2019,24 @@ private fun TeleprompterSettingsWindow(
             Text("整体缩放 x${"%.1f".format(settings.overallScale)}（对所有文字生效，含导入文档自带字号；只影响显示，不改导出）")
             LiquidSlider(
                 value = { settings.overallScale },
-                onValueChange = { v -> onBodyDragStart(); onUpdate { it.copy(overallScale = v) } },
+                onValueChange = { v ->
+                    onBodyDragStart()
+                    if (displayOverrides.overallScale != null) {
+                        onDisplayOverridesChange { it.copy(overallScale = v) }
+                    } else {
+                        onUpdate { it.copy(overallScale = v) }
+                    }
+                },
                 onValueChangeFinished = onBodyDragEnd,
                 backdrop = backdrop,
                 valueRange = 0.5f..3f,
+            )
+            DisplayOverrideSwitch(
+                isCustom = displayOverrides.overallScale != null,
+                onToggle = { checked ->
+                    onDisplayOverridesChange { it.copy(overallScale = if (checked) settings.overallScale else null) }
+                },
+                backdrop = backdrop,
             )
 
             Text("编辑时显示缩放 x${"%.1f".format(editZoomScale)}（只影响编辑页看着多大，不改真实字号）")
@@ -1979,10 +2051,26 @@ private fun TeleprompterSettingsWindow(
             Text("行距 x${"%.1f".format(settings.lineHeightMultiplier)}（对有明确行距的段落也生效，在原行距基础上再乘这个倍数）")
             LiquidSlider(
                 value = { settings.lineHeightMultiplier },
-                onValueChange = { v -> onBodyDragStart(); onUpdate { it.copy(lineHeightMultiplier = v) } },
+                onValueChange = { v ->
+                    onBodyDragStart()
+                    if (displayOverrides.lineHeightMultiplier != null) {
+                        onDisplayOverridesChange { it.copy(lineHeightMultiplier = v) }
+                    } else {
+                        onUpdate { it.copy(lineHeightMultiplier = v) }
+                    }
+                },
                 onValueChangeFinished = onBodyDragEnd,
                 backdrop = backdrop,
                 valueRange = 1f..2.5f,
+            )
+            DisplayOverrideSwitch(
+                isCustom = displayOverrides.lineHeightMultiplier != null,
+                onToggle = { checked ->
+                    onDisplayOverridesChange {
+                        it.copy(lineHeightMultiplier = if (checked) settings.lineHeightMultiplier else null)
+                    }
+                },
+                backdrop = backdrop,
             )
 
             // Portrait/landscape store separate values (横屏文字铺满整行时眼睛跟不上，需要单独收
@@ -1992,6 +2080,12 @@ private fun TeleprompterSettingsWindow(
                 val configuration = LocalConfiguration.current
                 val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
                 val widthFraction = settings.contentWidthFraction(isLandscape)
+                // 横竖屏各自独立存一份覆盖状态 - 跟全局设置本来就分横竖屏两个字段是同一个理由。
+                val currentOverride = if (isLandscape) {
+                    displayOverrides.contentWidthLandscape
+                } else {
+                    displayOverrides.contentWidthPortrait
+                }
                 Text(
                     "内容宽度（${if (isLandscape) "横屏" else "竖屏"}）${(widthFraction * 100).toInt()}%" +
                         "（查看/播放/编辑三处通用，横屏窄一点更跟得上滚动）",
@@ -1999,12 +2093,31 @@ private fun TeleprompterSettingsWindow(
                 LiquidSlider(
                     value = { widthFraction },
                     onValueChange = { v ->
-                        onUpdate {
-                            if (isLandscape) it.copy(contentWidthLandscape = v) else it.copy(contentWidthPortrait = v)
+                        if (currentOverride != null) {
+                            onDisplayOverridesChange {
+                                if (isLandscape) it.copy(contentWidthLandscape = v) else it.copy(contentWidthPortrait = v)
+                            }
+                        } else {
+                            onUpdate {
+                                if (isLandscape) it.copy(contentWidthLandscape = v) else it.copy(contentWidthPortrait = v)
+                            }
                         }
                     },
                     backdrop = backdrop,
                     valueRange = 0.4f..1f,
+                )
+                DisplayOverrideSwitch(
+                    isCustom = currentOverride != null,
+                    onToggle = { checked ->
+                        onDisplayOverridesChange {
+                            if (isLandscape) {
+                                it.copy(contentWidthLandscape = if (checked) widthFraction else null)
+                            } else {
+                                it.copy(contentWidthPortrait = if (checked) widthFraction else null)
+                            }
+                        }
+                    },
+                    backdrop = backdrop,
                 )
             }
 
@@ -2023,7 +2136,13 @@ private fun TeleprompterSettingsWindow(
                 ).forEach { (mode, label) ->
                     val selected = settings.textAlignMode == mode
                     LiquidCompactButton(
-                        onClick = { onUpdate { it.copy(textAlignMode = mode) } },
+                        onClick = {
+                            if (displayOverrides.textAlignMode != null) {
+                                onDisplayOverridesChange { it.copy(textAlignMode = mode) }
+                            } else {
+                                onUpdate { it.copy(textAlignMode = mode) }
+                            }
+                        },
                         backdrop = backdrop,
                         active = selected,
                         shape = RoundedCornerShape(16.dp),
@@ -2042,6 +2161,13 @@ private fun TeleprompterSettingsWindow(
                     }
                 }
             }
+            DisplayOverrideSwitch(
+                isCustom = displayOverrides.textAlignMode != null,
+                onToggle = { checked ->
+                    onDisplayOverridesChange { it.copy(textAlignMode = if (checked) settings.textAlignMode else null) }
+                },
+                backdrop = backdrop,
+            )
 
             Spacer(Modifier.height(16.dp))
             Text("字体（整篇统一）")

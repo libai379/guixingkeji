@@ -140,11 +140,18 @@ private fun headingParagraphXml(text: String, fontFamily: TeleprompterFontFamily
 }
 
 /**
- * Builds a minimal-but-real docx: [Content_Types].xml + _rels/.rels + word/document.xml only -
- * no styles.xml/theme/fontTable, matching the "don't use pStyle, just bold+big+outlineLvl"
- * instruction, which sidesteps needing to generate a styles.xml at all.
+ * Builds a minimal-but-real docx: [Content_Types].xml + _rels/.rels + word/document.xml, plus
+ * (2026-08-25) word/_rels/document.xml.rels + customXml/item1.xml carrying this app's own display
+ * settings (see TeleprompterDocxSettings.kt for why/what) - no styles.xml/theme/fontTable, matching
+ * the "don't use pStyle, just bold+big+outlineLvl" instruction, which sidesteps needing to
+ * generate a styles.xml at all.
+ *
+ * [effectiveSettings] must be the CALLER's already-merged doc.effectiveSettings(library.settings)
+ * - this function doesn't have access to the library's global settings on its own, only to
+ * [document]. Exported as concrete resolved values (never null), unlike the live in-app
+ * TeleprompterDisplayOverrides which is mostly null - see buildDocxSettingsXml's own doc comment.
  */
-fun buildDocxBytes(document: TeleprompterDocument): ByteArray {
+fun buildDocxBytes(document: TeleprompterDocument, effectiveSettings: TeleprompterSettings): ByteArray {
     val bodyXml = buildString {
         append(headingParagraphXml(document.title, document.fontFamily))
         for (chapter in document.chapters) {
@@ -169,6 +176,21 @@ fun buildDocxBytes(document: TeleprompterDocument): ByteArray {
         }
     }
     val documentXml = DOCUMENT_XML_HEADER + bodyXml + DOCUMENT_XML_FOOTER
+    // 导出的是"这篇文档当前实际生效的样子"，不是"这篇文档自己覆盖了哪几项"——不管这五项是文档
+    // 自己覆盖的还是从全局继承来的，导出时一律写具体数值，effectiveSettings 已经把这层判断做完
+    // 了，这里直接拿结果。
+    val settingsXml = buildDocxSettingsXml(
+        overrides = TeleprompterDisplayOverrides(
+            fontSizeSp = effectiveSettings.fontSizeSp,
+            overallScale = effectiveSettings.overallScale,
+            lineHeightMultiplier = effectiveSettings.lineHeightMultiplier,
+            textAlignMode = effectiveSettings.textAlignMode,
+            contentWidthPortrait = effectiveSettings.contentWidthPortrait,
+            contentWidthLandscape = effectiveSettings.contentWidthLandscape,
+        ),
+        editZoomScale = document.editZoomScale,
+        subtitleStyle = document.subtitleStyle,
+    )
 
     val out = ByteArrayOutputStream()
     ZipOutputStream(out).use { zip ->
@@ -181,6 +203,8 @@ fun buildDocxBytes(document: TeleprompterDocument): ByteArray {
         writeEntry("[Content_Types].xml", CONTENT_TYPES_XML)
         writeEntry("_rels/.rels", ROOT_RELS_XML)
         writeEntry("word/document.xml", documentXml)
+        writeEntry(DOCX_DOCUMENT_RELS_PATH, DOCUMENT_RELS_XML)
+        writeEntry(DOCX_SETTINGS_CUSTOM_XML_PATH, settingsXml)
     }
     return out.toByteArray()
 }
@@ -190,5 +214,5 @@ fun buildMinimalTestDocx(): ByteArray {
         title = "测试文档",
         chapters = listOf(TeleprompterChapter(subtitle = "测试章节", contentHtml = "<p>测试</p>")),
     )
-    return buildDocxBytes(doc)
+    return buildDocxBytes(doc, TeleprompterSettings())
 }
