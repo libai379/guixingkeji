@@ -211,7 +211,7 @@ private fun LauncherScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                // 读 R.string.app_name，不写死——私人版是"癸月"，公开版是"癸月科技"，
+                // 读 R.string.app_name，不写死——私人版是"癸星"，公开版是"癸星科技"，
                 // 靠各自的 strings.xml 区分，这里两边代码保持一致，少一处要人工同步的差异。
                 text = META.appName,
                 color = Color.White,

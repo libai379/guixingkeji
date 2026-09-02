@@ -13,6 +13,10 @@ enum class CallGuardMode { Blacklist, Whitelist }
  * 一份带 mode 标记的扁平列表，从数据结构上就不可能串。 */
 @Serializable
 data class CallGuardStore(
+    // 2026-08-28 - 全局总开关，**默认关闭**。关着的时候 shouldBlockCall 一律返回 false，
+    // 来电走系统默认流程，等于这个功能不存在。默认关闭是有意的：拦截电话是"漏接真实来电"这种
+    // 不可逆代价，必须由用户显式打开，不能靠装上就生效。
+    val enabled: Boolean = false,
     val mode: CallGuardMode = CallGuardMode.Blacklist,
     val blacklistPrefixes: List<String> = emptyList(),
     val whitelistPrefixes: List<String> = emptyList(),
@@ -54,7 +58,16 @@ fun normalizeCallGuardNumber(raw: String): String {
 /** 命中当前生效模式的前缀规则时，黑名单=该拒接，白名单=不该放行（等价于也是拒接）——统一返回
  * "是否应该拒接"，调用方（[CallGuardScreeningService]）不需要关心具体是哪个模式。 */
 fun shouldBlockCall(normalizedNumber: String, store: CallGuardStore): Boolean {
-    val matched = store.activePrefixes.any { prefix -> prefix.isNotBlank() && normalizedNumber.startsWith(prefix) }
+    // 总开关关着：什么都不拦。
+    if (!store.enabled) return false
+    val active = store.activePrefixes.filter { it.isNotBlank() }
+    // 2026-08-28 - 规则列表为空时**一律放行**，两个模式都是。
+    //
+    // 黑名单空 = 没有任何号码被加进来，本来就不该拦（用户原话："没有加入黑名单的不要拦截"）。
+    // 白名单空更危险：按 !matched 的原始逻辑会变成"拦截所有来电"——一个刚切到白名单还没来得及
+    // 填号码的用户会瞬间屏蔽全部电话。漏接真实来电是不可逆的，这里选择失败即放行。
+    if (active.isEmpty()) return false
+    val matched = active.any { prefix -> normalizedNumber.startsWith(prefix) }
     return when (store.mode) {
         CallGuardMode.Blacklist -> matched
         CallGuardMode.Whitelist -> !matched

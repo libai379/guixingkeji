@@ -85,8 +85,13 @@ class TeleprompterVm : ViewModel() {
         _focusedChapterId.value = chapterId
     }
 
+    // 2026-08-26 - 新文档种一份完整的、属于它自己的显示设置（来源见 newDocumentDisplaySettings
+    // 的注释：只在创建这一刻读一次，之后这篇文档跟"新文档默认值"再无关系）。不种的话六个字段会
+    // 留成 null、靠 effectiveSettings 的兜底显示——那正是这次要去掉的两层模型的残影。
     fun createDocument(): String {
-        val doc = TeleprompterDocument()
+        val doc = TeleprompterDocument(
+            displayOverrides = teleprompterLibraryFlow.value.settings.newDocumentDisplaySettings(),
+        )
         updateTeleprompterLibrary { it.copy(documents = it.documents + doc) }
         return doc.id
     }
@@ -235,15 +240,6 @@ class TeleprompterVm : ViewModel() {
         updateTeleprompterLibrary { lib ->
             lib.copy(documents = lib.documents.map { doc ->
                 if (doc.id == docId) doc.copy(fontFamily = fontFamily, updatedAt = System.currentTimeMillis()) else doc
-            })
-        }
-    }
-
-    fun updateEditZoomScale(docId: String, scale: Float) {
-        val clamped = scale.coerceIn(0.5f, 2f)
-        updateTeleprompterLibrary { lib ->
-            lib.copy(documents = lib.documents.map { doc ->
-                if (doc.id == docId) doc.copy(editZoomScale = clamped, updatedAt = System.currentTimeMillis()) else doc
             })
         }
     }
@@ -405,27 +401,30 @@ class TeleprompterVm : ViewModel() {
      * resolved by the parser (the last one from the source doc's own heading formatting - see
      * TeleprompterWordParser's heading-run capture).
      *
-     * [displayOverrides]/[editZoomScale] (2026-08-25) come from a customXml part this app itself
-     * wrote on a previous export (see TeleprompterDocxSettings.kt) - default/null for plain Word
-     * sources, which leaves the new document following global settings exactly like before this
-     * feature existed. Written straight into THIS document only, never into library.settings -
-     * that's the entire point: opening someone else's differently-styled export must not change
-     * how every other document in this library looks. */
+     * [displayOverrides] (2026-08-25) comes from a customXml part this app itself wrote on a
+     * previous export (see TeleprompterDocxSettings.kt) - absent for plain Word sources. Written
+     * straight into THIS document only, never into library.settings - that's the entire point:
+     * opening someone else's differently-styled export must not change how every other document
+     * in this library looks.
+     *
+     * 2026-08-26 - 自定义部件里没带到的字段用"新文档默认值"补齐（withFallback），不再留成 null：
+     * 纯 Word 来源的导入因此和手动新建的文档起点完全一致，而带部件的导入仍然精确还原它自己带的
+     * 那几项。补齐用的默认值同样只在这一刻读一次。 */
     fun createDocumentFromImport(
         title: String,
         chapters: List<TeleprompterChapter>,
         fontFamily: TeleprompterFontFamily,
         subtitleStyle: TeleprompterSubtitleStyle,
         displayOverrides: TeleprompterDisplayOverrides = TeleprompterDisplayOverrides(),
-        editZoomScale: Float? = null,
     ): String {
         val doc = TeleprompterDocument(
             title = title,
             chapters = chapters.ifEmpty { listOf(TeleprompterChapter()) },
             fontFamily = fontFamily,
             subtitleStyle = subtitleStyle,
-            displayOverrides = displayOverrides,
-            editZoomScale = editZoomScale ?: TeleprompterDocument().editZoomScale,
+            displayOverrides = displayOverrides.withFallback(
+                teleprompterLibraryFlow.value.settings.newDocumentDisplaySettings(),
+            ),
         )
         updateTeleprompterLibrary { it.copy(documents = it.documents + doc) }
         return doc.id

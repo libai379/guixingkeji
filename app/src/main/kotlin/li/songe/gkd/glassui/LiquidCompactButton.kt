@@ -110,7 +110,10 @@ fun LiquidCompactButton(
                             patchedLens(
                                 16f.dp.toPx() * progress,
                                 28f.dp.toPx() * progress,
-                                chromaticAberration = true,
+                                // 2026-09-02 - 默认外观整体改成"朴素白底、不透明、色散全关"，这三个
+                            // 液态组件（按钮/滑块/开关）把色散写死在自己实现里、不走 GlassParams，
+                            // 所以要在这里单独关，否则"全部关掉"是漏的。
+                            chromaticAberration = false,
                             )
                         },
                         layerBlock = {

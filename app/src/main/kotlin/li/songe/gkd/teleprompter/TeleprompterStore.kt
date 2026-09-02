@@ -2,7 +2,10 @@
  * 提词器的持久化入口。
  *
  * 全部文稿（正文 HTML、章节结构、每篇的样式设置）存在**一个** DataStore key 里：
- * `teleprompter_library`，落盘位置 `filesDir/store/`。这意味着：
+ * `teleprompter_library`，落盘位置 `storeFolder`。注意 `FolderExt.kt` 里那个 `filesDir` 是私有的
+ * 同名 val，**不等于 `Context.filesDir`**：没有 `.gkd` 标记文件时它取的是 `getExternalFilesDir`，
+ * 实测真实路径是 `/storage/emulated/0/Android/data/<applicationId>/files/store/`（排查数据问题
+ * 直接 adb pull 这个路径，`run-as` 进内部存储是空的）。这意味着：
  * - 清除应用数据 = 文稿全没，且只存在手机本地，没有云备份；
  * - `applicationId` 一变（私人版 vs 公开版）就是两个独立的存储，数据不互通。
  * 所以这里提供了导出单篇/导出整库的功能，要提醒用户定期用。
@@ -36,11 +39,31 @@ private const val TAG = "Prompter"
 val teleprompterLibraryFlow = createAnyFlow(
     key = "teleprompter_library",
     default = { TeleprompterLibrary() },
-).also {
+).also { flow ->
     LogUtils.d(
-        "load library, docs=${it.value.documents.size}, file=teleprompter_library.json",
+        "load library, docs=${flow.value.documents.size}, file=teleprompter_library.json",
         tag = TAG,
     )
+    // 2026-08-26 - 五项显示设置从"全局 + 每篇可选覆盖"改成"每篇文档独立"的一次性数据迁移。
+    // 放在这里（顶层 val 的初始化块内）而不是某个界面的 LaunchedEffect 里：这个 val 第一次被访问
+    // 时就会跑完，任何读取方——ViewModel、编辑页、播放页、导出——都不可能拿到未迁移的值。
+    //
+    // 落盘必须显式调 persistNow()，不能指望"改了 flow.value 就会自动写"。createTextFlow 的写盘
+    // 协程是 scope.launch 起的，这个初始化块跑的时候它**还没开始收集**；等它开始收集时，
+    // MutableStateFlow 把当前值（已经是迁移后的）当第一个值发过去，正好被 drop(1) 丢掉，于是一个
+    // 字都不会写。这不是推测：第一版就是这么写的，真机上日志打了 migrated、拉下来的文件却还是旧
+    // 格式，schemaVersion 都没有。
+    val beforeVersion = flow.value.schemaVersion
+    val migrated = flow.value.migrateToPerDocumentDisplaySettings()
+    if (migrated != flow.value) {
+        flow.value = migrated
+        flow.persistNow()
+        LogUtils.d(
+            "migrated library, docs=${migrated.documents.size}, " +
+                "schemaVersion=$beforeVersion -> ${migrated.schemaVersion}, persisted=true",
+            tag = TAG,
+        )
+    }
 }
 
 private val prettyJson by lazy { Json(from = json) { prettyPrint = true } }

@@ -94,10 +94,11 @@ data class GlassParams(
     val tint: GlassTintParams = GlassTintParams(),
 )
 
-/** Tuned in the on-device playground (2026-08-08) and exported as one shared baseline for all
- * three targets - see glasstuning playground session, GlassTuningActivity. Update this constant
- * (not the individual call sites) when a new tuning round gets exported. */
-private val TunedGlassParams = GlassParams(
+/** 2026-08-08 在真机调参台里调出来的那套液态基线。
+ *
+ * 2026-09-02 起**不再是默认值**（默认改成下面的 [PlainGlassParams]），保留在这里是因为它是唯一
+ * 一份"调好过的"液态配方：用户想要液态效果时，这就是该恢复成的样子，不用重新从零试。 */
+internal val TunedGlassParams = GlassParams(
     cornerRadiusDp = 36.200985f,
     blurRadiusDp = 0f,
     refractionHeightDp = 48f,
@@ -152,10 +153,36 @@ private val TunedGlassParams = GlassParams(
  * also chromaticAberration=false) per an explicit "make it look like the drawer" request - the
  * readability risk that 14 was fixing is real and this panel is denser text than the drawer, so
  * if it resurfaces on-device this needs to go back to a nonzero value, not stay at 0 by default. */
-fun defaultGlassParamsFor(target: GlassTarget): GlassParams = when (target) {
-    GlassTarget.TeleprompterSettingsWindow -> TunedGlassParams.copy(chromaticAberration = false)
-    else -> TunedGlassParams
-}
+/**
+ * 2026-09-02 起的默认外观：**最普通的白色不透明底**，没有任何液态效果。
+ *
+ * 用户要求（原话）："所有默认预设设为最普通的白色底，不透明，所有的散光都关掉，需要液态效果，
+ * 后期让用户自己调"。所以这里把折射/模糊/高光/内阴影/深度/饱和度提升**全部关掉**，色散尤其关掉，
+ * 只留一层不透明白底 + 圆角。
+ *
+ * 为什么用 tint 而不是别的方式画这层白底：tint 是 GlassParams 里既有的"在玻璃表面再叠一层颜色"
+ * 机制（drawRect(色, Hue) + drawRect(色.alpha)），alpha=1 时就是完全不透明。走它的好处是**用户
+ * 之后在调参面板里把 alpha 拖下来，液态效果就自然透出来了**——不需要另做一套"关闭/开启液态"的
+ * 开关，默认值和可调值是同一条路径上的两个点。
+ */
+private val PlainGlassParams = GlassParams(
+    cornerRadiusDp = 24f,
+    blurRadiusDp = 0f,
+    refractionHeightDp = 0f,
+    refractionAmountDp = 0f,
+    depthEffect = false,
+    chromaticAberration = false,
+    vibrancy = false,
+    highlight = GlassHighlightParams(enabled = false),
+    shadow = GlassShadowParams(enabled = false),
+    innerShadow = GlassInnerShadowParams(enabled = false),
+    tint = GlassTintParams(enabled = true, colorArgb = 0xFFFFFFFFL, alpha = 1f),
+)
+
+/** 所有 target 统一用同一份朴素默认值——不再按 target 分叉。此前
+ *  TeleprompterSettingsWindow 单独关色散是为了绕开它特有的可读性问题，而现在色散本来就是全局
+ *  关闭的，那条特例失去了存在意义。 */
+fun defaultGlassParamsFor(target: GlassTarget): GlassParams = PlainGlassParams
 
 @Serializable
 data class GlassTuningStore(

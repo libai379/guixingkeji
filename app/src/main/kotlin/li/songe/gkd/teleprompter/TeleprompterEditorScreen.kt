@@ -13,7 +13,7 @@
  *   那几个滑块因此接了 `onBodyDragStart`/`onBodyDragEnd` 做视口裁剪：拖动期间只有屏幕内章节实时
  *   重排，屏幕外的冻结到松手再补。
  * - 只有当前聚焦的那一个章节用可编辑的 `BasicRichTextEditor`，其余渲染成只读 `Text` + 一层
- *   `scaledForDisplay()` 显示级缩放（见 TeleprompterTextScaling.kt，那份结果**绝不能回灌**给
+ *   （2026-08-28：`scaledForDisplay()` 已删除，三页统一渲染原始 annotatedString，见
  *   可编辑状态，会把放大后的字号当成真实字号存下去）。
  * - 自动保存的防抖 `LaunchedEffect` key 在 `state.annotatedString.text`（纯文本）上，**不是**整个
  *   AnnotatedString——后者在纯移动光标时也会变，曾导致每拖一下选区手柄就触发一次全量序列化+持久化。
@@ -31,6 +31,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -162,6 +164,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -277,6 +280,8 @@ fun TeleprompterEditorScreen(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val contentWidthFraction = effectiveSettings.contentWidthFraction(isLandscape)
     val scrollState = rememberScrollState()
+    // 顶栏浮层的底边（root 坐标系，px）。0 = 还没测到，此时不做光标滚动。
+    var topBarBottomPx by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
     // Outline "jump" needs a target scroll offset, but positionInParent() is relative to the
     // already-scrolled viewport (unstable while scrolling). Chapter heights aren't, so track
@@ -347,10 +352,13 @@ fun TeleprompterEditorScreen(
         pendingAnchor = captureAnchor()
         vm.mergeChapterIntoPreviousChapter(doc.id, chapterId)
     }
-    val promoteParagraph: (String, Int) -> Unit = { chapterId, paragraphIndex ->
-        pendingAnchor = captureAnchor()
-        vm.promoteParagraphToChapter(doc.id, chapterId, paragraphIndex)
-    }
+    // 2026-08-28 - "长按正文段落 → 提升为副标题"的**触发入口暂时没有了**。它原来挂在只读 Text 上
+    // （靠 getOffsetForPosition 把长按位置换算成段落序号），而正文统一成可编辑控件之后，长按是系统
+    // 文本选择手势，两者冲突——这个项目在别处已经因为"两个手势探测器抢事件"踩过坑，不能再叠一层。
+    //
+    // 后端**没有删**：vm.promoteParagraphToChapter 和 paragraphIndexForCharIndex 都还在，也仍被
+    // TeleprompterChapterOpsTest 覆盖着。等定了新的触发方式（备选：格式工具栏加一个按钮，对当前
+    // 光标所在段落生效——光标位置本来就有，不需要再做位置换算）再接回去。
 
     // Centralized so it doesn't depend on onFocusChanged(false) firing when a focused
     // BasicRichTextEditor is torn down by recomposition (switching straight to another
@@ -419,7 +427,10 @@ fun TeleprompterEditorScreen(
                 delay(500)
                 vm.updateViewZoomScale(doc.id, viewZoom)
             }
-            val zoomScale = if (isEditMode) doc.editZoomScale else viewZoom
+            // 2026-08-28 - 原来是 `if (isEditMode) doc.editZoomScale else viewZoom`，即编辑态和
+            // 查看态用两个不同的缩放值——这正是"同一篇文档在两个模式下断行不一致"的根源之一。
+            // editZoomScale 已删除，两个模式统一用查看态的捏合缩放。
+            val zoomScale = viewZoom
             // 视口裁剪跟手修复 (2026-08-16，见 docs/PITFALLS.md「提词器正文滑块拖动卡顿」的更新
             // 记录) - 拖动正文相关滑块（字号/整体缩放/编辑缩放/行距/副标题字号）时，只有屏幕内看
             // 得见的章节需要用最新值实时重排；屏幕外的章节冻结在拖动开始那一刻的值，直到松手
@@ -526,7 +537,6 @@ fun TeleprompterEditorScreen(
                                     chapter = chapter,
                                     isEditMode = isEditMode,
                                     isFirstChapter = index == 0,
-                                    isFocused = isThisChapterFocused,
                                     settings = if (useLiveBodyDisplay) effectiveSettings else frozenBodyDisplay!!.first,
                                     fontFamily = doc.fontFamily,
                                     subtitleStyle = if (useLiveBodyDisplay) doc.subtitleStyle else frozenBodyDisplay!!.third,
@@ -548,7 +558,8 @@ fun TeleprompterEditorScreen(
                                     onMoveUp = { vm.moveChapter(doc.id, chapter.id, -1) },
                                     onMoveDown = { vm.moveChapter(doc.id, chapter.id, 1) },
                                     onMergeIntoPrevious = mergeIntoPrevious,
-                                    onPromoteParagraph = promoteParagraph,
+                                    scrollState = scrollState,
+                                    topBarBottomPx = topBarBottomPx,
                                 )
                             }
                         }
@@ -580,6 +591,9 @@ fun TeleprompterEditorScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                // 2026-08-28 - 顶栏是浮层，正文从它底下滚过去。量出它的底边（root 坐标），
+                // 光标定位时要把光标所在行滚到这条线正下方，见 ChapterItem 里的滚动 effect。
+                .onGloballyPositioned { topBarBottomPx = it.positionInRoot().y + it.size.height }
                 .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .tunedGlass(
@@ -729,17 +743,14 @@ fun TeleprompterEditorScreen(
         if (settingsOpen) {
             TeleprompterSettingsWindow(
                 backdrop = editorBackdrop,
-                // 显示用：合并后的有效值（文档覆盖了就是覆盖值，没覆盖就是全局值）。
+                // 显示用：这篇文档自己的五项 + 其余真正全局的字段，拼成一份完整设置。
                 settings = effectiveSettings,
-                // 全局写入口 - 五项里"跟随全局"状态下的滑块走这条（跟改动前完全一样）。
+                // 真正全局的那些字段（滚动速度/播放页配色/面板玻璃参数…）走这条。
                 onUpdate = vm::updateSettings,
-                // 文档级写入口 - 五项里"自定义"状态下的滑块走这条，只改这一篇文档，不碰全局。
-                displayOverrides = doc.displayOverrides,
+                // 五项显示设置走这条，只改这一篇文档。
                 onDisplayOverridesChange = { mutate -> vm.updateDisplayOverrides(doc.id, mutate) },
                 fontFamily = doc.fontFamily,
                 onFontFamilyChange = { vm.updateDocumentFontFamily(doc.id, it) },
-                editZoomScale = doc.editZoomScale,
-                onEditZoomScaleChange = { vm.updateEditZoomScale(doc.id, it) },
                 subtitleStyle = doc.subtitleStyle,
                 onSubtitleStyleChange = { mutate -> vm.updateSubtitleStyle(doc.id, mutate) },
                 onOpenObserveLog = { settingsOpen = false; onOpenObserveLog() },
@@ -764,7 +775,6 @@ private fun ChapterItem(
     chapter: TeleprompterChapter,
     isEditMode: Boolean,
     isFirstChapter: Boolean,
-    isFocused: Boolean,
     settings: TeleprompterSettings,
     fontFamily: TeleprompterFontFamily,
     subtitleStyle: TeleprompterSubtitleStyle,
@@ -777,7 +787,8 @@ private fun ChapterItem(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMergeIntoPrevious: (String) -> Unit,
-    onPromoteParagraph: (String, Int) -> Unit,
+    scrollState: ScrollState,
+    topBarBottomPx: Float,
 ) {
     val state = rememberRichTextState()
     var hydrated by remember { mutableStateOf(false) }
@@ -818,7 +829,7 @@ private fun ChapterItem(
     // explicit per-run sizes cascaded in from Word import (see the read-only branch below,
     // where those get their own scaledForDisplay pass) - fontSizeSp alone can no longer reach
     // those now that imports carry explicit sizes.
-    val displayFontSizeSp = settings.fontSizeSp * settings.overallScale * zoomScale
+    val displayFontSizeSp = settings.fontSizeSp
     val forcedAlign = settings.textAlignMode.toComposeAlignOrNull()
     // 2026-08-22 行距解耦（方案 A，详见 TeleprompterTextScaling.kt 头部）：
     // 倍数 == 1.0 时 lineHeight 留空，让系统按每行实际字形逐行排版——这是唯一能做到逐行精确的
@@ -828,7 +839,7 @@ private fun ChapterItem(
     val bodyLineHeight = if (settings.lineHeightMultiplier == 1f) {
         TextUnit.Unspecified
     } else {
-        (displayFontSizeSp * settings.lineHeightMultiplier).sp
+        TextUnit(settings.lineHeightMultiplier, TextUnitType.Em)
     }
     val bodyStyle = TextStyle(
         fontSize = displayFontSizeSp.sp,
@@ -850,10 +861,10 @@ private fun ChapterItem(
     // 且试过的三种容纳办法（horizontalScroll、外层 Box、clipToBounds）都没能在真机上生效。现在
     // 改成从根上解决——让那个输入框可以换行（见 ChapterHeading 里的 softWrap 说明），溢出问题
     // 消失，就不需要用限制可选范围的方式去回避它了。滑块自己的 12..72sp 就是唯一上限。
-    val subtitleDisplaySizeSp = subtitleStyle.fontSizeSp * settings.overallScale * zoomScale
+    val subtitleDisplaySizeSp = subtitleStyle.fontSizeSp * settings.overallScale
     val headingStyle = TextStyle(
         fontSize = subtitleDisplaySizeSp.sp,
-        lineHeight = (subtitleDisplaySizeSp * settings.lineHeightMultiplier).sp,
+        lineHeight = TextUnit(settings.lineHeightMultiplier, TextUnitType.Em),
         fontWeight = if (subtitleStyle.bold) FontWeight.Bold else FontWeight.Normal,
         fontFamily = composeFontFamily,
     )
@@ -877,161 +888,90 @@ private fun ChapterItem(
         )
         Spacer(Modifier.height(2.dp))
 
-        if (isFocused) {
-            val focusRequester = remember { FocusRequester() }
-            var wasFocused by remember { mutableStateOf(false) }
-            BasicRichTextEditor(
-                state = state,
-                textStyle = bodyStyle,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            wasFocused = true
-                            onRequestFocus(chapter.id)
-                            onBecomeActive(state)
-                        } else if (wasFocused) {
-                            wasFocused = false
-                            // Only flush if something actually changed since hydration - merely
-                            // focusing and un-focusing without typing (e.g. tapping in to look,
-                            // then tapping away) used to still round-trip state through toHtml()
-                            // and save that back, which is a lossy operation (verified via the
-                            // [OBSERVE] logs: re-serializing untouched hydrated content shrank it
-                            // by dozens of chars from style-attribute normalization). Skip the
-                            // save entirely when nothing changed instead of relying on the
-                            // round-trip being harmless.
-                            if (state.annotatedString != lastHydratedSnapshot) {
-                                vm.onChapterContentChanged(docId, chapter.id, state.toHtml(), state.annotatedString.text)
-                            }
-                            // deliberately NOT clearing onBecomeActive(null) here: the format
-                            // toolbar's numeric font-size input briefly steals focus to accept
-                            // typed digits, which fires this same blur path - nulling the active
-                            // RichTextState here would break "type a number, apply it" (state
-                            // becomes null right when the toolbar needs it). Only the screen-level
-                            // 完成 button and switching to a different chapter actually retarget it.
-                        }
-                    },
-            )
-            LaunchedEffect(Unit) { focusRequester.requestFocus() }
-            // 2026-08-16 - 诊断"拖选中光标手柄不跟手、乱跳"发现的真实根因（见 docs/PITFALLS.md
-            // 同名条目）：这个 LaunchedEffect 原来直接 key 在 state.annotatedString 上，但真机日志
-            // 证明单纯拖动手柄改选区（文字内容完全没变，textLen 全程不变）也会让 state.annotatedString
-            // 被判定为"变了"（应该是 richeditor-compose 库内部按光标位置拆分/合并 span 的副作用，
-            // 不是文档能改的第三方库代码）——于是每次手柄移动都被误判成"真的编辑了"，800ms 后触发一次
-            // 完整的 state.toHtml() 序列化 + vm.onChapterContentChanged 持久化写入（内容大的章节这一下
-            // 不便宜），而这个写入会替换整个 TeleprompterLibrary StateFlow、引发大范围重组，跟手柄
-            // 自己的位置重绘抢帧——真机录屏逐帧看，正是这个模式：选区文字在正确扩大，但手柄那个圆圈
-            // 卡在原地不动，隔了十几帧才突然跳到新位置。改成只 key 在 state.annotatedString.text
-            // （纯文本）上：单纯移动选区/光标不再触发这一串重组；真正的文字编辑（text 会变）依旧
-            // 正常触发。代价：纯样式改动（比如选中后点粗体，一个字都没打）不再被这个"打字防抖"实时
-            // 捕获，但失焦时的兜底判断（见上面 wasFocused 分支）仍然比较完整的 annotatedString，
-            // 会在切走这个章节时把样式变化补存下来，不会真的丢。
-            LaunchedEffect(state.annotatedString.text) {
-                if (!hydrated) return@LaunchedEffect
-                // Only arm the debounce on a REAL edit, not on hydration (setHtml also changes
-                // state.annotatedString, which is what this effect is keyed on, so it used to
-                // fire - and 800ms later save a round-tripped copy of content nobody touched -
-                // on every focus/re-hydration, not just on typing). A merge/split rewriting this
-                // chapter's content bumps structureVersion, which re-hydrates and therefore
-                // changes state.annotatedString too - that cancels+restarts this exact
-                // LaunchedEffect (new key value), so any debounce that was already in flight for
-                // the OLD pre-merge content is implicitly thrown away here for free, without a
-                // separate explicit-cancel step.
-                if (state.annotatedString.text == lastHydratedSnapshot?.text) return@LaunchedEffect
-                TeleprompterObserveLog.log(
-                    "debounce armed, chapterId=${chapter.id}, textLen=${state.annotatedString.text.length}",
-                )
-                delay(800)
-                vm.onChapterContentChanged(docId, chapter.id, state.toHtml(), state.annotatedString.text)
-            }
-        } else {
-            // Tapping the read-only render must land the cursor where the user actually tapped,
-            // not wherever state.selection last happened to be (e.g. end-of-text from the
-            // original setHtml hydration) - a plain onClick with no position awareness is
-            // exactly what produced "tap anywhere, cursor jumps to the last character".
-            var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-            // Fix B / "提升为副标题": long-pressing a body paragraph resolves the tap position to
-            // a paragraph index (same getOffsetForPosition mechanism as the tap-to-cursor fix)
-            // and offers to split a new chapter starting at that paragraph.
-            var promoteParagraphIndex by remember(chapter.id) { mutableStateOf<Int?>(null) }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .let {
-                        if (isEditMode) {
-                            it.pointerInput(chapter.id) {
-                                detectTapGestures(
-                                    onTap = { offset ->
-                                        textLayoutResult?.let { layout ->
-                                            val charIndex = layout.getOffsetForPosition(offset)
-                                                .coerceIn(0, state.annotatedString.text.length)
-                                            state.selection = TextRange(charIndex, charIndex)
-                                        }
-                                        onRequestFocus(chapter.id)
-                                    },
-                                    onLongPress = { offset ->
-                                        textLayoutResult?.let { layout ->
-                                            val charIndex = layout.getOffsetForPosition(offset)
-                                                .coerceIn(0, state.annotatedString.text.length)
-                                            promoteParagraphIndex = paragraphIndexForCharIndex(chapter.contentHtml, charIndex)
-                                        }
-                                    },
-                                )
-                            }
-                        } else {
-                            it
-                        }
-                    },
-            ) {
-                if (chapter.contentHtml.isBlank()) {
-                    Text(
-                        "正文…",
-                        style = bodyStyle,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    // Read-only (not the focused/editing chapter): render a display-only rescale
-                    // of state's AnnotatedString (settings.overallScale/lineHeightMultiplier onto
-                    // explicit per-run sizes and per-paragraph spacing cascaded in from Word
-                    // import, plus a forced alignment if set) instead of feeding `state` itself
-                    // into BasicRichText - see TeleprompterTextScaling.kt's own doc for why this
-                    // must never be fed back into the live editable state. The focused/editing
-                    // chapter (BasicRichTextEditor above) intentionally does NOT get this pass -
-                    // WYSIWYG while actively typing, matching what's actually stored.
-                    val displayText = remember(
-                        state.annotatedString, settings.overallScale, settings.lineHeightMultiplier,
-                        forcedAlign, displayFontSizeSp,
-                    ) {
-                        state.annotatedString.scaledForDisplay(
-                            sizeScale = settings.overallScale,
-                            lineHeightScale = settings.lineHeightMultiplier,
-                            forcedAlign = forcedAlign,
-                            // 段内一个显式字号都没有时（原生新建的文稿）用它兜底，保证这类文稿的
-                            // 行距依然跟着"正文默认字号"走。
-                            fallbackFontSizeSp = displayFontSizeSp,
-                        )
+        // 2026-08-28 - 正文渲染统一到 TeleprompterBody（见 TeleprompterBodyRenderer.kt）。
+        // 这里原来有个 `if (isFocused) 富文本编辑器 else 只读 Text(scaledForDisplay(...))` 的分支，
+        // 两条路喂给排版引擎的输入对象不同，是"编辑页和阅读页断行对不上"的直接原因。现在整个屏幕
+        // 的每一章都用同一个控件、同一份 state 的原始 annotatedString，只有 mode 不同。
+        //
+        // 顺带没了的东西（都是这个分支的附属品，不是单独功能）：
+        // - 点击定位光标：以前只读 Text 上要自己 getOffsetForPosition 换算，现在正文本身就是可编辑
+        //   控件，点哪儿光标就在哪儿，是控件原生行为。
+        // - "正文…" 占位：空章节不再显示灰字提示（BasicRichTextEditor 的 decorationBox 能做，但那
+        //   属于新增 UI，不在本轮范围）。
+        var wasFocused by remember { mutableStateOf(false) }
+        // 光标行定位所需的两个量：正文的排版结果（拿行的 top/bottom）和正文在 root 里的 y。
+        var bodyLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+        var bodyTopInRoot by remember { mutableFloatStateOf(0f) }
+        val scope = rememberCoroutineScope()
+
+        TeleprompterBody(
+            state = state,
+            style = bodyStyle,
+            mode = if (isEditMode) TeleprompterRenderMode.Edit else TeleprompterRenderMode.Read,
+            settings = settings,
+            onTextLayout = { bodyLayout = it },
+            modifier = Modifier
+                .onGloballyPositioned { bodyTopInRoot = it.positionInRoot().y }
+                .onFocusChanged { focusState ->
+                if (focusState.isFocused) {
+                    wasFocused = true
+                    onRequestFocus(chapter.id)
+                    onBecomeActive(state)
+                } else if (wasFocused) {
+                    wasFocused = false
+                    // Only flush if something actually changed since hydration - merely focusing
+                    // and un-focusing without typing used to still round-trip state through
+                    // toHtml() and save that back, which is lossy (verified via [OBSERVE] logs:
+                    // re-serializing untouched hydrated content shrank it by dozens of chars from
+                    // style-attribute normalization). Skip the save entirely when nothing changed.
+                    if (state.annotatedString != lastHydratedSnapshot) {
+                        vm.onChapterContentChanged(docId, chapter.id, state.toHtml(), state.annotatedString.text)
                     }
-                    Text(
-                        text = displayText,
-                        style = bodyStyle,
-                        onTextLayout = { textLayoutResult = it },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    // deliberately NOT clearing onBecomeActive(null) here: the format toolbar's
+                    // numeric font-size input briefly steals focus to accept typed digits, which
+                    // fires this same blur path.
                 }
-                DropdownMenu(
-                    expanded = promoteParagraphIndex != null,
-                    onDismissRequest = { promoteParagraphIndex = null },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("提升为副标题") },
-                        onClick = {
-                            promoteParagraphIndex?.let { onPromoteParagraph(chapter.id, it) }
-                            promoteParagraphIndex = null
-                        },
-                    )
-                }
-            }
+                },
+        )
+        // 2026-08-28 - 光标行不该被顶栏浮层挡住：光标一变（点击定位、方向键、输入换行）就把它所在
+        // 的那一行滚到顶栏底边正下方，成为第一行可见内容。
+        //
+        // 为什么按行的 top 而不是按固定像素偏移：行高随字号/行距变化，写死偏移量在换字号后必然对不上。
+        // getLineForOffset + getLineTop 拿到的是**这一行实际的排版位置**，字号一变它自己就跟着变。
+        //
+        // 只 key 在 selection 上：滚动本身会改变 bodyTopInRoot，若把它也当 key 会自激循环。
+        LaunchedEffect(state.selection, bodyLayout, topBarBottomPx, isEditMode) {
+            if (!isEditMode) return@LaunchedEffect
+            if (topBarBottomPx <= 0f) return@LaunchedEffect
+            val layout = bodyLayout ?: return@LaunchedEffect
+            val textLen = layout.layoutInput.text.length
+            if (textLen == 0) return@LaunchedEffect
+            val offset = state.selection.start.coerceIn(0, textLen)
+            val line = layout.getLineForOffset(offset)
+            val lineTopInRoot = bodyTopInRoot + layout.getLineTop(line)
+            val delta = lineTopInRoot - topBarBottomPx
+            // 已经正好在位（±1px）就不动，避免无意义的滚动动画。
+            if (delta > -1f && delta < 1f) return@LaunchedEffect
+            val target = (scrollState.value + delta).roundToInt().coerceIn(0, scrollState.maxValue)
+            scope.launch { scrollState.animateScrollTo(target) }
+        }
+        // 2026-08-16 - 见 docs/PITFALLS.md「拖选中光标手柄不跟手、乱跳」：这个 LaunchedEffect 原来
+        // key 在 state.annotatedString 上，但单纯拖手柄改选区（文字没变）也会让它被判定为"变了"，
+        // 于是每次手柄移动都触发一次完整的 toHtml() + 持久化写入，引发大范围重组跟手柄自己的重绘
+        // 抢帧。改成只 key 在纯文本上：移动选区不再触发，真正的编辑照常触发。纯样式改动由上面失焦
+        // 分支的完整 annotatedString 比较兜底。
+        //
+        // 2026-08-28 - 从 `if (isFocused)` 分支里移出来了：现在每一章都是活的编辑器，所以每一章都
+        // 要有自己的防抖保存，不能只有"当前焦点那一章"有。
+        LaunchedEffect(state.annotatedString.text) {
+            if (!hydrated) return@LaunchedEffect
+            if (!isEditMode) return@LaunchedEffect
+            if (state.annotatedString.text == lastHydratedSnapshot?.text) return@LaunchedEffect
+            TeleprompterObserveLog.log(
+                "debounce armed, chapterId=${chapter.id}, textLen=${state.annotatedString.text.length}",
+            )
+            delay(800)
+            vm.onChapterContentChanged(docId, chapter.id, state.toHtml(), state.annotatedString.text)
         }
     }
 }
@@ -1830,54 +1770,40 @@ internal fun BoxScope.TeleprompterOutlinePanel(
  * closes the window on an outside tap); closing removes this composable and taps reach the
  * document again on their own, no extra bookkeeping needed.
  */
-// 2026-08-25 - 五项"文档级可覆盖"字段共用同一个开关 UI，不是每处单独画一遍——五处都用这一个
-// 组件，行为不一致的风险就只剩"这一个组件本身写错"，不会出现"改了第一处、后面四处照抄时抄漏了
-// 一行"这种情况。
+/** 设置项下面那行小字说明。2026-08-28 拆掉 scaledForDisplay 之后，这四项显示设置的作用范围缩小到
+ *  "只对没有自带样式的文字生效"，这些小字如实描述新行为。原来那几句括号说明里还带着"请用『整体
+ *  缩放』调整"之类的指引，改造后属于错误引导（整体缩放同样够不着自带字号的文字），一并删掉。 */
 @Composable
-private fun DisplayOverrideSwitch(
-    isCustom: Boolean,
-    onToggle: (Boolean) -> Unit,
-    backdrop: Backdrop,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            if (isCustom) "这篇文档单独设置" else "跟随全局设置",
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        LiquidToggle(selected = { isCustom }, onSelect = onToggle, backdrop = backdrop)
-    }
+private fun SettingHint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
 private fun TeleprompterSettingsWindow(
     backdrop: Backdrop,
-    // 合并后的有效值（用来显示），不是原始的全局值 - 调用方传的是 doc.effectiveSettings(...)。
+    // 拼装好的完整设置（用来显示）- 调用方传的是 doc.effectiveSettings(...)：五项来自这篇文档
+    // 自己，其余字段来自真正全局的那些。
     settings: TeleprompterSettings,
-    // 全局写入口，五项里"跟随全局"状态下用这个（改动前所有其它非五项字段也走这个，不变）。
+    // 真正全局的那些字段（滚动速度/播放页配色/面板玻璃参数…）的写入口。
+    // 2026-08-26 - 五项显示设置**不再走这条**，它们只写文档级；这里剩下的调用点都是全库共用的。
     onUpdate: ((TeleprompterSettings) -> TeleprompterSettings) -> Unit,
-    // 2026-08-25 - 文档级写入口，五项里"自定义"状态下用这个。displayOverrides 是这篇文档自己的
-    // 原始覆盖状态（哪几项是 null/跟随全局、哪几项有自己的值），每项滑块旁边的切换开关靠它判断
-    // 当前是哪种状态。
-    displayOverrides: TeleprompterDisplayOverrides,
+    // 五项显示设置的写入口，只改这一篇文档。改造后是这五项的唯一写入路径，没有第二条分支。
     onDisplayOverridesChange: ((TeleprompterDisplayOverrides) -> TeleprompterDisplayOverrides) -> Unit,
     fontFamily: TeleprompterFontFamily,
     onFontFamilyChange: (TeleprompterFontFamily) -> Unit,
-    editZoomScale: Float,
-    onEditZoomScaleChange: (Float) -> Unit,
     subtitleStyle: TeleprompterSubtitleStyle,
     onSubtitleStyleChange: ((TeleprompterSubtitleStyle) -> TeleprompterSubtitleStyle) -> Unit,
     onOpenObserveLog: () -> Unit,
     onDismiss: () -> Unit,
     // 2026-08-16 - "视口裁剪"跟手修复（见 docs/PITFALLS.md「提词器正文滑块拖动卡顿」）：拖动这几个
     // 正文相关滑块时，屏幕外的章节不用跟着每次节流推送都重排，只有屏幕内看得见的才需要跟手。
-    // 只有 fontSizeSp/overallScale/editZoomScale/lineHeightMultiplier/副标题字号这 5 个会触发全文
-    // 重排的滑块需要接这两个回调；滚动速度/面板透明度/模糊度/内容宽度不接（内容宽度是共享一个
-    // 外层 fillMaxWidth，本来就没法只裁剪部分章节，维持原样）。
+    // 只有 fontSizeSp/overallScale/lineHeightMultiplier/副标题字号这几个会触发全文重排的滑块需要
+    // 接这两个回调；滚动速度/面板透明度/模糊度/内容宽度不接（内容宽度是共享一个外层 fillMaxWidth，
+    // 本来就没法只裁剪部分章节，维持原样）。
     onBodyDragStart: () -> Unit = {},
     onBodyDragEnd: () -> Unit = {},
 ) {
@@ -1979,18 +1905,15 @@ private fun TeleprompterSettingsWindow(
             // 区域）；另外把"玻璃"这个字眼全部换成"液态"（不改功能，只改这几处文案用词）。
             Text("正文", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = SectionTitleColor)
             Spacer(Modifier.height(8.dp))
-            Text("正文默认字号 ${settings.fontSizeSp.toInt()}sp（只对没有明确字号的正文生效。从 Word 导入的内容通常自带字号，不受此项影响，请用『整体缩放』调整）")
+            Text("正文默认字号 ${settings.fontSizeSp.toInt()}sp")
+            SettingHint("不影响 Word 导入时自带字号的文字")
             LiquidSlider(
                 value = { settings.fontSizeSp },
                 onValueChange = { v ->
                     onBodyDragStart()
-                    // 2026-08-25 - 开关在"自定义"状态就写文档级覆盖，否则走原来的全局写入口，行为
-                    // 完全不变。
-                    if (displayOverrides.fontSizeSp != null) {
-                        onDisplayOverridesChange { it.copy(fontSizeSp = v) }
-                    } else {
-                        onUpdate { it.copy(fontSizeSp = v) }
-                    }
+                    // 2026-08-26 - 直接写这篇文档自己的值。改造前这里有个"开关打开写文档级、否则
+                    // 写全局"的分支，现在没有全局层，也就没有第二条路可走了。
+                    onDisplayOverridesChange { it.copy(fontSizeSp = v) }
                 },
                 onValueChangeFinished = onBodyDragEnd,
                 backdrop = backdrop,
@@ -2002,75 +1925,38 @@ private fun TeleprompterSettingsWindow(
                 // 的实时跟手，见 onBodyDragStart/onBodyDragEnd 和 docs/PITFALLS.md「提词器正文滑块
                 // 拖动卡顿」的更新记录。
             )
-            DisplayOverrideSwitch(
-                isCustom = displayOverrides.fontSizeSp != null,
-                onToggle = { checked ->
-                    // 打开开关那一刻，把当前正在显示的（合并后的）值原样写进文档覆盖，不让滑块跳
-                    // 一下；关闭时清空覆盖，自然回落到全局值。
-                    onDisplayOverridesChange { it.copy(fontSizeSp = if (checked) settings.fontSizeSp else null) }
-                },
-                backdrop = backdrop,
-            )
 
             // "导入文档偏小时整体放大，同时保留原文的大小对比关系" - unlike 默认字号 above, this
             // multiplies onto EVERY文字的字号, including Word 导入 run 自带的明确字号 (层叠解析后
             // 几乎全文都带明确字号，默认字号那个滑块单独对它们完全不生效 - 已用真实文档验证过)。
             // 只影响显示，不改存储/导出的字号。
-            Text("整体缩放 x${"%.1f".format(settings.overallScale)}（对所有文字生效，含导入文档自带字号；只影响显示，不改导出）")
+            Text("整体缩放 x${"%.1f".format(settings.overallScale)}")
+            SettingHint("不影响 Word 导入时自带字号的文字")
             LiquidSlider(
                 value = { settings.overallScale },
                 onValueChange = { v ->
                     onBodyDragStart()
-                    if (displayOverrides.overallScale != null) {
-                        onDisplayOverridesChange { it.copy(overallScale = v) }
-                    } else {
-                        onUpdate { it.copy(overallScale = v) }
-                    }
+                    onDisplayOverridesChange { it.copy(overallScale = v) }
                 },
                 onValueChangeFinished = onBodyDragEnd,
                 backdrop = backdrop,
                 valueRange = 0.5f..3f,
             )
-            DisplayOverrideSwitch(
-                isCustom = displayOverrides.overallScale != null,
-                onToggle = { checked ->
-                    onDisplayOverridesChange { it.copy(overallScale = if (checked) settings.overallScale else null) }
-                },
-                backdrop = backdrop,
-            )
 
-            Text("编辑时显示缩放 x${"%.1f".format(editZoomScale)}（只影响编辑页看着多大，不改真实字号）")
-            LiquidSlider(
-                value = { editZoomScale },
-                onValueChange = { v -> onBodyDragStart(); onEditZoomScaleChange(v) },
-                onValueChangeFinished = onBodyDragEnd,
-                backdrop = backdrop,
-                valueRange = 0.5f..2f,
-            )
-
-            Text("行距 x${"%.1f".format(settings.lineHeightMultiplier)}（对有明确行距的段落也生效，在原行距基础上再乘这个倍数）")
+            // 2026-08-28 - "编辑时显示缩放"滑块已删除。它是唯一一个只对编辑页生效的排版参数，
+            // 会让同一篇文档在编辑页和阅读/播放页按不同字号断行，三页对不上。要整体调大小用上面
+            // 的"整体缩放"，三页统一生效。
+            Text("行距 x${"%.1f".format(settings.lineHeightMultiplier)}")
+            SettingHint("不影响 Word 导入时自带行距的段落")
             LiquidSlider(
                 value = { settings.lineHeightMultiplier },
                 onValueChange = { v ->
                     onBodyDragStart()
-                    if (displayOverrides.lineHeightMultiplier != null) {
-                        onDisplayOverridesChange { it.copy(lineHeightMultiplier = v) }
-                    } else {
-                        onUpdate { it.copy(lineHeightMultiplier = v) }
-                    }
+                    onDisplayOverridesChange { it.copy(lineHeightMultiplier = v) }
                 },
                 onValueChangeFinished = onBodyDragEnd,
                 backdrop = backdrop,
                 valueRange = 1f..2.5f,
-            )
-            DisplayOverrideSwitch(
-                isCustom = displayOverrides.lineHeightMultiplier != null,
-                onToggle = { checked ->
-                    onDisplayOverridesChange {
-                        it.copy(lineHeightMultiplier = if (checked) settings.lineHeightMultiplier else null)
-                    }
-                },
-                backdrop = backdrop,
             )
 
             // Portrait/landscape store separate values (横屏文字铺满整行时眼睛跟不上，需要单独收
@@ -2080,12 +1966,6 @@ private fun TeleprompterSettingsWindow(
                 val configuration = LocalConfiguration.current
                 val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
                 val widthFraction = settings.contentWidthFraction(isLandscape)
-                // 横竖屏各自独立存一份覆盖状态 - 跟全局设置本来就分横竖屏两个字段是同一个理由。
-                val currentOverride = if (isLandscape) {
-                    displayOverrides.contentWidthLandscape
-                } else {
-                    displayOverrides.contentWidthPortrait
-                }
                 Text(
                     "内容宽度（${if (isLandscape) "横屏" else "竖屏"}）${(widthFraction * 100).toInt()}%" +
                         "（查看/播放/编辑三处通用，横屏窄一点更跟得上滚动）",
@@ -2093,35 +1973,19 @@ private fun TeleprompterSettingsWindow(
                 LiquidSlider(
                     value = { widthFraction },
                     onValueChange = { v ->
-                        if (currentOverride != null) {
-                            onDisplayOverridesChange {
-                                if (isLandscape) it.copy(contentWidthLandscape = v) else it.copy(contentWidthPortrait = v)
-                            }
-                        } else {
-                            onUpdate {
-                                if (isLandscape) it.copy(contentWidthLandscape = v) else it.copy(contentWidthPortrait = v)
-                            }
+                        // 横竖屏各存各的一份 - 跟这两个字段本来就分开的理由相同：两种握持方式
+                        // 合适的宽度互不相干。这里只改当前朝向的那一个。
+                        onDisplayOverridesChange {
+                            if (isLandscape) it.copy(contentWidthLandscape = v) else it.copy(contentWidthPortrait = v)
                         }
                     },
                     backdrop = backdrop,
                     valueRange = 0.4f..1f,
                 )
-                DisplayOverrideSwitch(
-                    isCustom = currentOverride != null,
-                    onToggle = { checked ->
-                        onDisplayOverridesChange {
-                            if (isLandscape) {
-                                it.copy(contentWidthLandscape = if (checked) widthFraction else null)
-                            } else {
-                                it.copy(contentWidthPortrait = if (checked) widthFraction else null)
-                            }
-                        }
-                    },
-                    backdrop = backdrop,
-                )
             }
 
             Text("对齐方式")
+            SettingHint("不影响 Word 导入时自带对齐的段落")
             Spacer(Modifier.height(4.dp))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -2136,13 +2000,7 @@ private fun TeleprompterSettingsWindow(
                 ).forEach { (mode, label) ->
                     val selected = settings.textAlignMode == mode
                     LiquidCompactButton(
-                        onClick = {
-                            if (displayOverrides.textAlignMode != null) {
-                                onDisplayOverridesChange { it.copy(textAlignMode = mode) }
-                            } else {
-                                onUpdate { it.copy(textAlignMode = mode) }
-                            }
-                        },
+                        onClick = { onDisplayOverridesChange { it.copy(textAlignMode = mode) } },
                         backdrop = backdrop,
                         active = selected,
                         shape = RoundedCornerShape(16.dp),
@@ -2161,13 +2019,6 @@ private fun TeleprompterSettingsWindow(
                     }
                 }
             }
-            DisplayOverrideSwitch(
-                isCustom = displayOverrides.textAlignMode != null,
-                onToggle = { checked ->
-                    onDisplayOverridesChange { it.copy(textAlignMode = if (checked) settings.textAlignMode else null) }
-                },
-                backdrop = backdrop,
-            )
 
             Spacer(Modifier.height(16.dp))
             Text("字体（整篇统一）")

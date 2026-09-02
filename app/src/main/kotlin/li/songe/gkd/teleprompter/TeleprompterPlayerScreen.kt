@@ -85,6 +85,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
@@ -402,14 +403,14 @@ fun TeleprompterPlayerScreen(
     // both apply here for text that has no explicit per-run size, AND separately to every
     // explicit per-run size cascaded in from Word import (see scaledForDisplay below), which
     // fontSizeSp alone can no longer reach now that imports carry explicit sizes.
-    val displayFontSizeSp = settings.fontSizeSp * settings.overallScale * playerZoom
+    val displayFontSizeSp = settings.fontSizeSp
     val forcedAlign = settings.textAlignMode.toComposeAlignOrNull()
     // 2026-08-22 行距解耦（方案 A，见 TeleprompterTextScaling.kt 头部）——跟编辑页同一处理：
     // 倍数 1.0 时留空走逐行自然排版；否则这里只作为"段内无显式字号"段落的兜底。
     val bodyLineHeight = if (settings.lineHeightMultiplier == 1f) {
         TextUnit.Unspecified
     } else {
-        (displayFontSizeSp * settings.lineHeightMultiplier).sp
+        TextUnit(settings.lineHeightMultiplier, TextUnitType.Em)
     }
     val textStyle = TextStyle(
         color = textColor,
@@ -422,11 +423,11 @@ fun TeleprompterPlayerScreen(
     // body's fontSizeSp - "整体缩放" still reaches it (overallScale multiplies subtitleStyle's own
     // size too, same "multiply everything, don't override" model as the body), but 正文默认字号
     // (settings.fontSizeSp) does not, matching the settings-page copy change explaining exactly that.
-    val subtitleDisplaySizeSp = doc.subtitleStyle.fontSizeSp * settings.overallScale * playerZoom
+    val subtitleDisplaySizeSp = doc.subtitleStyle.fontSizeSp * settings.overallScale
     val subtitleTextStyle = TextStyle(
         color = doc.subtitleStyle.colorArgb?.let { Color(it.toInt()) } ?: textColor,
         fontSize = subtitleDisplaySizeSp.sp,
-        lineHeight = (subtitleDisplaySizeSp * settings.lineHeightMultiplier).sp,
+        lineHeight = TextUnit(settings.lineHeightMultiplier, TextUnitType.Em),
         fontWeight = if (doc.subtitleStyle.bold) FontWeight.Bold else FontWeight.Normal,
         fontFamily = doc.fontFamily.toComposeFontFamily(),
         textAlign = forcedAlign ?: TextAlign.Unspecified,
@@ -522,13 +523,10 @@ fun TeleprompterPlayerScreen(
                             togglePlaying("center tap")
                         }
                     }
-                }
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, zoomChange, _ ->
-                        playerZoom = (playerZoom * zoomChange).coerceIn(0.5f, 3f)
-                    }
                 },
-            contentPadding = PaddingValues(horizontal = 24.dp),
+            // 2026-08-28 - 原来这里有 `contentPadding = PaddingValues(horizontal = 24.dp)`，
+            // 而编辑页的横向内边距是另一套数值 → 两边正文可用宽度不同 → 断行必然不同。内边距
+            // 现在归 TeleprompterBody 所有（TELEPROMPTER_BODY_HORIZONTAL_PADDING），页面不再加。
         ) {
             item { Spacer(Modifier.height(320.dp)) }
             itemsIndexed(doc.chapters, key = { _, ch -> ch.id }) { index, chapter ->
@@ -544,36 +542,28 @@ fun TeleprompterPlayerScreen(
                             "state.annotatedString.text len=${readState.annotatedString.text.length}",
                     )
                 }
-                // Read-only display transform: rescales this chapter's explicit per-run fontSize
-                // and per-paragraph lineHeight (both cascaded in from Word import) by the
-                // settings-page multipliers, and forces alignment if the setting isn't
-                // FollowDocument. Never fed back into readState - display-only, per
-                // TeleprompterTextScaling.kt's own doc.
-                val displayText = remember(
-                    readState.annotatedString, settings.overallScale, settings.lineHeightMultiplier,
-                    forcedAlign, displayFontSizeSp,
-                ) {
-                    readState.annotatedString.scaledForDisplay(
-                        sizeScale = settings.overallScale,
-                        lineHeightScale = settings.lineHeightMultiplier,
-                        forcedAlign = forcedAlign,
-                        fallbackFontSizeSp = displayFontSizeSp,
-                    )
-                }
-                Box(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth(contentWidthFraction)
-                            .align(Alignment.TopCenter)
-                            .padding(bottom = 56.dp),
-                    ) {
+                // 2026-08-28 - 正文渲染统一到 TeleprompterBody（见 TeleprompterBodyRenderer.kt）。
+                // 这里原来先做一遍 scaledForDisplay 再喂给 Text，而编辑页焦点章节喂的是原始
+                // annotatedString——两条路输入不同，断行就不可能一致。现在播放页跟编辑页/阅读态
+                // 用同一个控件、同一份原始 annotatedString、同一套宽度和内边距。
+                Column(Modifier.fillMaxWidth().padding(bottom = 56.dp)) {
+                    Box(Modifier.fillMaxWidth()) {
                         Text(
                             chapter.subtitle,
                             style = subtitleTextStyle,
-                            modifier = Modifier.padding(bottom = 12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth(contentWidthFraction)
+                                .align(Alignment.TopCenter)
+                                .padding(horizontal = TELEPROMPTER_BODY_HORIZONTAL_PADDING)
+                                .padding(bottom = 12.dp),
                         )
-                        Text(text = displayText, style = textStyle, modifier = Modifier.fillMaxWidth())
                     }
+                    TeleprompterBody(
+                        state = readState,
+                        style = textStyle,
+                        mode = TeleprompterRenderMode.Play,
+                        settings = settings,
+                    )
                 }
             }
             item { Spacer(Modifier.height(480.dp)) }

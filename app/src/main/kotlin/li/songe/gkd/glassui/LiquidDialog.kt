@@ -4,12 +4,13 @@
  * https://github.com/Kyant0/AndroidLiquidGlass/blob/main/LICENSE), turned from a one-off demo
  * screen into a reusable dialog composable.
  *
- * The original samples the real screen behind it as its backdrop (BackdropDemoScaffold's
- * wallpaper). A Dialog here uses Android's own separate window, which can't see the activity's
- * content behind it that way - so this dialog's "backdrop" is its own scrim layer instead
- * (rememberLayerBackdrop() capturing the dim overlay this composable paints itself). The glass
- * card still frosts/refracts something real, just the scrim it drew, not the app content further
- * back - a common enough look for system-style dialogs, not a literal see-through window.
+ * 2026-08-28 - 卡片已改为**主题色实心**，不再是液态玻璃。原因写在下面 background() 那处注释里，
+ * 一句话：Dialog 是独立 window，采样不到背后 Activity 的内容，玻璃在这里折射的只是弹窗自己画的
+ * 那层纯色遮罩，等于没折射，白付渲染成本。
+ *
+ * 仍然保留 [Backdrop] 参数传给 content：调用方的自定义内容里可能还有别的用途，且改签名会波及
+ * 全部调用点；但**不要再往这个弹窗里放 LiquidButton**，实心卡片上的玻璃按钮会采样到被卡片挡住的
+ * 遮罩，画出来是一块跟卡片颜色对不上的灰斑。
  */
 package li.songe.gkd.glassui
 
@@ -18,7 +19,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +27,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,11 +47,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.backdrops.layerBackdrop
 import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
-import com.kashif_e.backdrop.effects.colorControls
 import li.songe.gkd.glasstuning.GlassParams
 import li.songe.gkd.glasstuning.GlassTarget
 import li.songe.gkd.glasstuning.liveGlassParamsFor
-import li.songe.gkd.glasstuning.tunedGlass
 
 /** A frosted-glass dialog card over its own dim scrim, with a scale+fade entrance. Content sits
  * in a [ColumnScope] below an optional [title] and gets the dialog's own [Backdrop] handed to it
@@ -64,11 +66,14 @@ fun LiquidDialog(
     dismissOnClickOutside: Boolean = true,
     content: @Composable ColumnScope.(backdrop: Backdrop) -> Unit,
 ) {
-    val isLightTheme = !isSystemInDarkTheme()
-
     Dialog(
         onDismissRequest = onDismissRequest,
-        properties = DialogProperties(dismissOnClickOutside = dismissOnClickOutside),
+        properties = DialogProperties(
+            dismissOnClickOutside = dismissOnClickOutside,
+            // 2026-08-28 - 关掉平台默认宽度约束，否则 Dialog 的窗口只有内容那么大，下面那层
+            // fillMaxSize 的遮罩铺不满屏幕，点击弹窗外围也不在本窗口的命中范围内。
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         val backdrop = rememberLayerBackdrop()
 
@@ -89,6 +94,7 @@ fun LiquidDialog(
             )
             Column(
                 modifier
+                    .align(Alignment.Center)
                     .padding(32.dp)
                     .graphicsLayer {
                         alpha = entrance.value
@@ -96,23 +102,17 @@ fun LiquidDialog(
                         scaleX = s
                         scaleY = s
                     }
-                    .tunedGlass(
-                        backdrop = backdrop,
-                        params = params,
-                        cornerRadius = 28.dp,
-                        // Catalog's DialogContent recipe adds colorControls(brightness=0.2 on
-                        // light theme, saturation=1.5) on top of blur+lens - it's compensating
-                        // for the dim scrim it draws behind the card (same scrim this dialog
-                        // draws, see the Box below). saturation stays at 1f here (the default,
-                        // a no-op) rather than repeating 1.5 - TunedGlassParams.vibrancy=true
-                        // already applies that same saturation boost (vibrancy() and
-                        // colorControls(saturation=1.5f) are literally the same colorFilter in
-                        // this fork, see effects/ColorFilter.kt), so stacking both would
-                        // compound to ~2.25x saturation instead of the intended 1.5x.
-                        extraEffects = {
-                            colorControls(brightness = if (isLightTheme) 0.2f else 0f)
-                        },
-                    )
+                    // 2026-08-28 - 从 tunedGlass 改成纯色卡片。
+                    //
+                    // 原因是液态玻璃在这里**原理上就没法生效**：Dialog 是 Android 独立 window，
+                    // 采样不到它背后 Activity 的内容（本文件头部原本就写明了这一点）。原实现只好
+                    // 退而求其次去采样"弹窗自己画的那层遮罩"——折射一块纯色遮罩，等于什么都没折射，
+                    // 只剩一层灰蒙蒙的底，还白白付了 blur+lens 的渲染成本和窄面板色散越界的风险。
+                    //
+                    // 所以这里用主题色实心卡片，视觉确定、成本为零。要真正的液态弹窗必须改成
+                    // "同一棵组合树里的覆盖层"（提词器设置面板就是那么做的，见
+                    // TeleprompterSettingsWindow 的注释），那是另一件事，不在本次范围。
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp))
                     .fillMaxWidth(),
             ) {
                 if (title != null) {
@@ -160,19 +160,19 @@ fun LiquidDialog(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 2026-08-28 - 从 LiquidButton 改成主题色按钮。卡片已经是不透明实心的，玻璃按钮在它
+            // 上面采样到的是被卡片挡住的那层遮罩，画出来是一块跟卡片颜色对不上的灰斑。
             if (dismissLabel != null) {
-                LiquidButton(
+                OutlinedButton(
                     onClick = onDismissRequest,
-                    backdrop = backdrop,
                     modifier = Modifier.weight(1f),
                 ) { Text(dismissLabel) }
             }
-            LiquidButton(
+            Button(
                 onClick = onConfirm,
-                backdrop = backdrop,
                 modifier = Modifier.weight(1f),
-                tint = confirmTint,
-            ) { Text(confirmLabel, color = Color.White) }
+                colors = ButtonDefaults.buttonColors(containerColor = confirmTint),
+            ) { Text(confirmLabel) }
         }
     }
 }

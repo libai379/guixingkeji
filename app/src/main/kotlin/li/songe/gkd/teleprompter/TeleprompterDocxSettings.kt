@@ -37,7 +37,6 @@ const val DOCX_DOCUMENT_RELS_PATH = "word/_rels/document.xml.rels"
 
 fun buildDocxSettingsXml(
     overrides: TeleprompterDisplayOverrides,
-    editZoomScale: Float,
     subtitleStyle: TeleprompterSubtitleStyle,
 ): String = buildString {
     append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
@@ -48,7 +47,8 @@ fun buildDocxSettingsXml(
     overrides.textAlignMode?.let { append("<textAlignMode>${it.name}</textAlignMode>") }
     overrides.contentWidthPortrait?.let { append("<contentWidthPortrait>$it</contentWidthPortrait>") }
     overrides.contentWidthLandscape?.let { append("<contentWidthLandscape>$it</contentWidthLandscape>") }
-    append("<editZoomScale>$editZoomScale</editZoomScale>")
+    // 2026-08-28 - editZoomScale 已删除，不再写进部件。老包里带这个标签的 docx 仍能导入：解析端
+    // 只按标签名取值，多出来的标签本来就会被忽略（跟 ignoreUnknownKeys 同一个道理）。
     append("<subtitleFontSizeSp>${subtitleStyle.fontSizeSp}</subtitleFontSizeSp>")
     append("<subtitleBold>${subtitleStyle.bold}</subtitleBold>")
     // null = 跟随正文，标签整个不出现（不是写一个空标签）——解析端用"标签存不存在"判断，不是
@@ -62,7 +62,6 @@ fun buildDocxSettingsXml(
  *  塞进新文档的 displayOverrides 字段，不用逐项判断。 */
 data class ParsedDocxSettings(
     val displayOverrides: TeleprompterDisplayOverrides,
-    val editZoomScale: Float?,
     val subtitleStyle: TeleprompterSubtitleStyle?,
 )
 
@@ -111,7 +110,6 @@ fun parseDocxSettingsXml(text: String): ParsedDocxSettings? {
                 contentWidthPortrait = childText("contentWidthPortrait")?.toFloatOrNull(),
                 contentWidthLandscape = childText("contentWidthLandscape")?.toFloatOrNull(),
             ),
-            editZoomScale = childText("editZoomScale")?.toFloatOrNull(),
             subtitleStyle = subtitleStyle,
         )
     } catch (e: Exception) {

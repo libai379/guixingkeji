@@ -38,11 +38,9 @@ data class DocxImportSummary(
     // 18pt bold red should keep looking like that after import, not silently reset to whatever
     // this app's own default happens to be.
     val subtitleStyle: TeleprompterSubtitleStyle,
-    // 2026-08-25 - 只有本 app 自己导出的 docx（带 customXml 自定义部件）才会非空/非默认，纯 Word
-    // 来源的文档这两项保持默认（displayOverrides 全 null、editZoomScale 为 null），createDocumentFromImport
-    // 那边据此决定"要不要覆盖新文档的显示设置"，不去改全局设置。
+    // 2026-08-25 - 只有本 app 自己导出的 docx（带 customXml 自定义部件）才会非默认，纯 Word 来源
+    // 的文档这一项保持默认（全 null），createDocumentFromImport 那边用"新文档默认值"把缺的补齐。
     val displayOverrides: TeleprompterDisplayOverrides = TeleprompterDisplayOverrides(),
-    val editZoomScale: Float? = null,
 )
 
 class DocxParseException(message: String) : Exception(message)
@@ -727,6 +725,5 @@ fun parseDocxDocument(
         // 存的数值）。纯 Word 来源没有自定义部件，docxSettings 为 null，走原来的扫描结果不变。
         subtitleStyle = docxSettings?.subtitleStyle ?: subtitleStyle,
         displayOverrides = docxSettings?.displayOverrides ?: TeleprompterDisplayOverrides(),
-        editZoomScale = docxSettings?.editZoomScale,
     )
 }

@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -323,7 +325,7 @@ fun TeleprompterLibraryScreen(
 
     renameTarget?.let { doc ->
         var text by remember(doc.id) { mutableStateOf(doc.title) }
-        LiquidDialog(onDismissRequest = { renameTarget = null }, title = "重命名", target = GlassTarget.TeleprompterLibrary) { backdrop ->
+        LiquidDialog(onDismissRequest = { renameTarget = null }, title = "重命名", target = GlassTarget.TeleprompterLibrary) { _ ->
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -335,18 +337,18 @@ fun TeleprompterLibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LiquidButton(onClick = { renameTarget = null }, backdrop = backdrop, modifier = Modifier.weight(1f)) {
+                // 2026-08-28 - 跟 LiquidDialog 的确认/取消按钮同批改成主题色按钮：弹窗卡片已是
+                // 不透明实心，玻璃按钮在上面只会采样到被挡住的遮罩。
+                OutlinedButton(onClick = { renameTarget = null }, modifier = Modifier.weight(1f)) {
                     Text("取消")
                 }
-                LiquidButton(
+                Button(
                     onClick = {
                         vm.renameDocument(doc.id, text.ifBlank { doc.title })
                         renameTarget = null
                     },
-                    backdrop = backdrop,
                     modifier = Modifier.weight(1f),
-                    tint = Color(0xFF0088FF),
-                ) { Text("确定", color = Color.White) }
+                ) { Text("确定") }
             }
         }
     }

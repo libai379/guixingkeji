@@ -172,7 +172,6 @@ suspend fun importDocxAndCreateDocument(
             summary.fontFamily,
             summary.subtitleStyle,
             summary.displayOverrides,
-            summary.editZoomScale,
         )
         docId to summary
     }
@@ -192,7 +191,7 @@ fun DocxImportSummary.describe(): String {
         // 2026-08-25 - 不打断操作的轻量提示，跟其余内容拼在同一条 toast 里，不单开一个对话框。
         // 只有重新导入本 app 自己导出的 docx 才会出现这句；纯 Word 来源、或本 app 更早版本导出
         // （还没有这个自定义部件）的文件，这几个字段全是默认值，这句不出现，行为等同现在。
-        val hasCustomDisplaySettings = editZoomScale != null || listOf(
+        val hasCustomDisplaySettings = listOf(
             displayOverrides.fontSizeSp, displayOverrides.overallScale, displayOverrides.lineHeightMultiplier,
             displayOverrides.contentWidthPortrait, displayOverrides.contentWidthLandscape,
         ).any { it != null } || displayOverrides.textAlignMode != null

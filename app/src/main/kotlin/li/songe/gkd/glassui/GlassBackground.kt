@@ -159,23 +159,55 @@ fun GlassBackgroundLayer(
             Box(modifier.layerBackdrop(backdrop).background(MaterialTheme.colorScheme.background))
         }
 
-        GlassBgMode.Solid -> Box(modifier.layerBackdrop(backdrop).background(Color(bg.solidColorArgb.toInt())))
+        // 2026-08-28 - 纯色/渐变现在跟图片模式共用同一组调节（亮度/对比度/饱和度/模糊度/透明度）。
+        // 实现方式跟图片模式不同：图片是给 Image 挂 ColorFilter，而纯色/渐变没有可挂 filter 的节点，
+        // 所以直接把同一个色彩矩阵**算进颜色本身**——对一块均匀色/渐变来说，逐像素滤镜和逐色号变换
+        // 结果是等价的，省掉一整层离屏渲染。
+        //
+        // 模糊度对纯色是无效果的（一块均匀色糊了还是它自己），这是数学事实不是没实现；渐变会被轻微
+        // 柔化。透明度走 Color 自己的 alpha 通道。
+        // 2026-09-02 - 纯色/渐变**一律不透明**（alphaMul 传 1f），透明度滑块对它们不生效。
+        //
+        // 背景是全屏最底层，它没有"背后"可言：半透明的纯色只能跟某个人为指定的基底混合——混黑就
+        // 浑浊、混白就发灰，取哪个都是拍脑袋，而且启动页和设置页背后的东西本来就不同（窗口底色
+        // vs Scaffold 容器色），一旦允许半透明，两个页面必然显示成两个颜色（这正是用户报的那个
+        // "两个页面颜色不一样"）。不透明之后颜色 = 你选的颜色，两个页面结构上不可能不同。
+        //
+        // 透明度对**图片**模式仍然有意义（把照片淡出到基底，做成低对比的衬底），所以那边保留。
+        GlassBgMode.Solid -> {
+            val c = Color(bg.solidColorArgb.toInt())
+                .adjustedForGlassBg(bg.imageBrightness, bg.imageContrast, bg.imageSaturation, alphaMul = 1f)
+            Box(modifier.layerBackdrop(backdrop).fillMaxSize().background(c))
+        }
 
         GlassBgMode.Gradient -> {
-            val colors = bg.gradientColorsArgb.map { Color(it.toInt()) }
-            Box(
-                modifier
-                    .layerBackdrop(backdrop)
-                    .fillMaxSize()
-                    .drawAngledGradientBehind(colors, bg.gradientAngleDeg),
-            )
+            val colors = bg.gradientColorsArgb.map {
+                Color(it.toInt())
+                    .adjustedForGlassBg(bg.imageBrightness, bg.imageContrast, bg.imageSaturation, alphaMul = 1f)
+            }
+            Box(modifier) {
+                // 采样层不加 blur：Modifier.blur 叠在 layerBackdrop 标记的节点上会把模糊糊到整屏
+                // （本项目踩过，见 PITFALLS 的 graphicsLayer 叠加条目），所以跟图片模式一样拆两层。
+                Box(
+                    Modifier
+                        .layerBackdrop(backdrop)
+                        .fillMaxSize()
+                        .drawAngledGradientBehind(colors, bg.gradientAngleDeg),
+                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .blur(bg.imageBlurDp.dp)
+                        .drawAngledGradientBehind(colors, bg.gradientAngleDeg),
+                )
+            }
         }
 
         GlassBgMode.Image -> {
             val painter = rememberGlassBgImagePainter(bg.imageFileName)
             if (painter != null) {
                 val matrix = glassBgColorMatrix(bg.imageBrightness, bg.imageContrast, bg.imageSaturation)
-                Box(modifier) {
+                Box(modifier.background(GLASS_BG_BASE)) {
                     // Capture-tagged: same color adjustments as the visible layer below (colorFilter
                     // is a plain Paint-level op, safe to combine with layerBackdrop) but NO blur -
                     // stacking Modifier.blur() onto a layerBackdrop-tagged node bled the blur across
@@ -229,40 +261,19 @@ private fun DrawScope.drawAngledGradient(colors: List<Color>, angleDeg: Float) {
     )
 }
 
-private fun composeColorMatrices(outer: ColorMatrix, inner: ColorMatrix): ColorMatrix {
-    val a = outer.values
-    val b = inner.values
-    val r = FloatArray(20)
-    for (row in 0 until 4) {
-        for (col in 0 until 5) {
-            var sum = if (col == 4) a[row * 5 + 4] else 0f
-            for (k in 0 until 4) sum += a[row * 5 + k] * b[k * 5 + col]
-            r[row * 5 + col] = sum
-        }
-    }
-    return ColorMatrix(r)
-}
 
 /** brightness/contrast/saturation composed into one ColorMatrix for a single colorFilter pass.
  * Order: saturation, then contrast (pivoted at 128 so it doesn't also shift brightness), then
  * brightness - the pre-existing post-scale-every-value trick (correct because scaling an affine
  * transform's linear+bias terms uniformly is equivalent to scaling its output by the same factor).
  * Transparency is handled separately via Image's own `alpha` param, not folded in here. */
-private fun glassBgColorMatrix(brightness: Float, contrast: Float, saturation: Float): ColorMatrix {
-    val saturationMatrix = ColorMatrix().apply { setToSaturation(saturation) }
-    val contrastTranslate = 128f * (1f - contrast)
-    val contrastMatrix = ColorMatrix(
-        floatArrayOf(
-            contrast, 0f, 0f, 0f, contrastTranslate,
-            0f, contrast, 0f, 0f, contrastTranslate,
-            0f, 0f, contrast, 0f, contrastTranslate,
-            0f, 0f, 0f, 1f, 0f,
-        ),
-    )
-    val matrix = composeColorMatrices(outer = contrastMatrix, inner = saturationMatrix)
-    for (i in matrix.values.indices) matrix.values[i] = matrix.values[i] * brightness
-    return matrix
-}
+/** 把 [glassBgColorMatrix] 那套亮度/对比度/饱和度变换直接作用到单个颜色上，再乘上透明度。
+ *
+ *  纯色/渐变没有可以挂 ColorFilter 的绘制节点，但它们是均匀色/色标插值，逐色号变换和逐像素滤镜
+ *  等价——所以这里手算，避免为一块纯色开一层离屏缓冲。公式跟 glassBgColorMatrix 保持一致：
+ *  先饱和度（按 Rec.601 亮度权重向灰度插值），再对比度（绕 0.5 中灰缩放），最后整体乘亮度。 */
+
+
 
 /** Decodes once per [fileName] (remember keys on it) and caches the result - not re-decoded on
  * every recomposition. Full-resolution decode, no downsampling: matches the library screen's
@@ -460,28 +471,39 @@ fun GlassBackgroundEditor(
                     Text(if (importing) "导入中…" else "选择图片", modifier = Modifier.weight(1f))
                 }
 
-                Spacer(Modifier.height(4.dp))
-                Text("亮度 ${"%.1f".format(current.imageBrightness)}", style = MaterialTheme.typography.labelMedium)
-                LiquidSlider(
-                    value = { current.imageBrightness },
-                    onValueChange = { v -> onUpdate { it.copy(imageBrightness = v) } },
-                    backdrop = backdrop,
-                    valueRange = 0.3f..1.7f,
-                )
-                Text("对比度 ${"%.1f".format(current.imageContrast)}", style = MaterialTheme.typography.labelMedium)
-                LiquidSlider(
-                    value = { current.imageContrast },
-                    onValueChange = { v -> onUpdate { it.copy(imageContrast = v) } },
-                    backdrop = backdrop,
-                    valueRange = 0.3f..1.7f,
-                )
-                Text("饱和度 ${"%.1f".format(current.imageSaturation)}", style = MaterialTheme.typography.labelMedium)
-                LiquidSlider(
-                    value = { current.imageSaturation },
-                    onValueChange = { v -> onUpdate { it.copy(imageSaturation = v) } },
-                    backdrop = backdrop,
-                    valueRange = 0f..2f,
-                )
+            }
+        }
+    }
+
+
+        // 2026-08-28 - 这五个调节从"只有图片模式有"提升为**纯色/渐变/图片三种模式共用**。
+        // 默认模式不给：那一档就是"不加任何背景"，没有可调的对象。
+        // 字段名仍是 imageXxx（落盘兼容，改名会丢用户已有配置），语义已扩展到全部模式。
+        if (current.mode != GlassBgMode.Default) {
+            Spacer(Modifier.height(4.dp))
+            Text("亮度 ${"%.1f".format(current.imageBrightness)}", style = MaterialTheme.typography.labelMedium)
+            LiquidSlider(
+                value = { current.imageBrightness },
+                onValueChange = { v -> onUpdate { it.copy(imageBrightness = v) } },
+                backdrop = backdrop,
+                valueRange = 0.3f..1.7f,
+            )
+            Text("对比度 ${"%.1f".format(current.imageContrast)}", style = MaterialTheme.typography.labelMedium)
+            LiquidSlider(
+                value = { current.imageContrast },
+                onValueChange = { v -> onUpdate { it.copy(imageContrast = v) } },
+                backdrop = backdrop,
+                valueRange = 0.3f..1.7f,
+            )
+            Text("饱和度 ${"%.1f".format(current.imageSaturation)}", style = MaterialTheme.typography.labelMedium)
+            LiquidSlider(
+                value = { current.imageSaturation },
+                onValueChange = { v -> onUpdate { it.copy(imageSaturation = v) } },
+                backdrop = backdrop,
+                valueRange = 0f..2f,
+            )
+            // 模糊度对纯色是数学上的空操作（均匀色糊完还是它自己），所以也只在渐变/图片给。
+            if (current.mode != GlassBgMode.Solid) {
                 Text("模糊度 ${current.imageBlurDp.toInt()}dp", style = MaterialTheme.typography.labelMedium)
                 LiquidSlider(
                     value = { current.imageBlurDp },
@@ -489,6 +511,11 @@ fun GlassBackgroundEditor(
                     backdrop = backdrop,
                     valueRange = 0f..30f,
                 )
+            }
+            // 透明度只对图片模式给：纯色/渐变已改为一律不透明（背景没有"背后"，半透明只能跟人为
+            // 指定的基底混合，取哪个都是拍脑袋，而且会让启动页和设置页显示成两个颜色）。滑块留在
+            // 那儿却不生效比没有更糟——用户会以为是坏的。
+            if (current.mode == GlassBgMode.Image) {
                 Text("透明度 ${(current.imageAlpha * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
                 LiquidSlider(
                     value = { current.imageAlpha },
@@ -498,7 +525,6 @@ fun GlassBackgroundEditor(
                 )
             }
         }
-    }
 
     if (solidPickerOpen) {
         TeleprompterColorPickerPopup(

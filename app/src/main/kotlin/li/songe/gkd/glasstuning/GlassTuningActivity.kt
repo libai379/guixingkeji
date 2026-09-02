@@ -52,7 +52,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
@@ -320,22 +319,6 @@ private fun PresetSection(targets: List<GlassTarget>) {
     var deletePreset by remember { mutableStateOf<GlassPreset?>(null) }
     val activity = LocalActivity.current!!
     val scope = rememberCoroutineScope()
-    // 导入流程分两步（2026-08-25）：文件选好、解析成功之后，先弹命名对话框问一句要存成什么名字
-    // （跟"保存当前为新预设"同一套交互），确认了才真正写入存储 —— 不是选完文件就直接落库。
-    var importPending by remember { mutableStateOf<ParsedGlassPreset?>(null) }
-
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            importGlassPresetFromUri(uri).fold(
-                onSuccess = { parsed -> importPending = parsed },
-                onFailure = { e -> toast(e.message ?: "导入失败") },
-            )
-        }
-    }
-
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionTitle("预设")
         Text(
@@ -357,11 +340,9 @@ private fun PresetSection(targets: List<GlassTarget>) {
                     toast("已应用「${preset.name}」")
                 }) { Text("应用") }
                 if (!isBuiltIn) {
-                    // 导出：写成 .guiyue.json 真实文件 + 拉起系统分享面板，微信/文件管理器/其它
-                    // app 都能接，不用专门为某一个接收方单独适配。
-                    IconButton(onClick = { activity.exportGlassPresetToFile(preset) }) {
-                        Icon(Icons.Filled.Share, contentDescription = "导出「${preset.name}」")
-                    }
+                    // 2026-08-28 - 预设的文件导出已整体删除（导入侧此前已删，导出的文件没有任何
+                    // 入口能读回来，属于死功能）。预设本身仍然可以保存/应用/改名/删除，只是不再能
+                    // 导出成文件跨设备搬运。
                     IconButton(onClick = { renamePreset = preset }) {
                         Icon(Icons.Filled.Edit, contentDescription = "改名「${preset.name}」")
                     }
@@ -376,11 +357,6 @@ private fun PresetSection(targets: List<GlassTarget>) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("保存当前为新预设")
-            }
-            OutlinedButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
-                Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("导入")
             }
         }
     }
@@ -426,25 +402,12 @@ private fun PresetSection(targets: List<GlassTarget>) {
             },
         )
     }
-    importPending?.let { parsed ->
-        PresetNameDialog(
-            title = "导入预设",
-            initialName = parsed.suggestedName,
-            confirmLabel = "导入",
-            onDismiss = { importPending = null },
-            onConfirm = { name ->
-                commitImportedGlassPreset(parsed, name)
-                importPending = null
-                toast("已导入「$name」")
-            },
-        )
-    }
 }
 
 @Composable
-// internal 不是 private (2026-08-25) - GlassPresetImportActivity.kt 那边的"打开方式"接收入口也要
-// 复用同一个命名对话框，不重新画一份。
-internal fun PresetNameDialog(
+// 2026-08-28 - 改回 private：唯一复用它的 GlassPresetImportActivity（"打开方式"接收入口）已随
+// 预设 JSON 导入功能一起删除。
+private fun PresetNameDialog(
     title: String,
     initialName: String,
     confirmLabel: String,

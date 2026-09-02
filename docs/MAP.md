@@ -102,6 +102,21 @@ filesDir/db/ subscription/ snapshot/    上游 GKD 的订阅/快照（公开版�
 cacheDir/shared/           对外分享用的临时文件（诊断日志导出等）
 ```
 
+⚠️ **这里的 `filesDir` 是 `FolderExt.kt` 里的私有同名 val，不是 `Context.filesDir`**（2026-08-26
+踩过）。它的实际取值是：内部 `filesDir` 下存在 `.gkd` 标记文件才用内部存储，**否则用
+`getExternalFilesDir(null)`**（上游 fix #1333 留下的逻辑）。实测这台机器上走的是外部分支，所以
+真实路径是：
+
+```
+/storage/emulated/0/Android/data/<applicationId>/files/store/teleprompter_library.json
+/storage/emulated/0/Android/data/<applicationId>/files/teleprompter_bg/
+/storage/emulated/0/Android/data/<applicationId>/cache/shared/
+```
+
+**排查数据问题时直接 `adb pull` 上面这个路径就行，不需要 `run-as`**——反过来，去
+`run-as <pkg> ls /data/data/<pkg>/files/store` 会是空的（那里只有 `private-store/`，
+`privateStoreFolder` 才是真正写死用内部存储的）。debug 构建的包名带 `.debug` 后缀，别漏。
+
 ⚠️ **提词器文稿只存在手机本地**，清除应用数据就没了，且 `applicationId` 一变就是另一个应用（数据
 不互通）。提醒用户定期用导出功能备份。
 

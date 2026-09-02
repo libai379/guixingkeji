@@ -94,6 +94,39 @@ private fun mergedSpanStyleAt(annotated: AnnotatedString, index: Int): SpanStyle
     return result
 }
 
+/**
+ * 段落边界的**唯一**来源：`annotatedString.paragraphStyles` 的 range，不是文本里的 '\n'。
+ *
+ * 2026-08-28 - 修真实 bug：原来按 `text[i] == '\n'` 切段。但 `RichTextState.setHtml()` **不会**在
+ * HTML 的 `<p>` 之间插入换行符，段落边界只体现在 paragraphStyles 里。结果是每章正文整体没有一个
+ * '\n'，被当成一个段落导出——沉香话术实测：应用里 330 个 `<p>`，导出的 docx 只有 19 个 `<w:p>`
+ * （= 1 标题 + 9 副标题 + 9 章正文各 1 段），而且 `<w:br/>` 也是 0，段落边界既没变成段落也没变成
+ * 换行，直接丢了。再把这份 docx 导回来自然"跟原来不一样"。
+ *
+ * 兜底：没有任何 paragraphStyles 时（纯文本内容）退回按 '\n' 切，行为跟以前一致。
+ */
+private fun paragraphRangesOf(annotated: AnnotatedString): List<Pair<Int, Int>> {
+    val text = annotated.text
+    val bounds = sortedSetOf(0, text.length)
+    for (range in annotated.paragraphStyles) {
+        if (range.start in 0..text.length) bounds.add(range.start)
+        if (range.end in 0..text.length) bounds.add(range.end)
+    }
+    // '\n' 仍然算边界：导入的内容里若真有换行符，它同样是段落分隔。
+    text.forEachIndexed { i, c -> if (c == '\n') { bounds.add(i); bounds.add(i + 1) } }
+    val points = bounds.toList()
+    val result = mutableListOf<Pair<Int, Int>>()
+    for (i in 0 until points.size - 1) {
+        val s = points[i]
+        val e = points[i + 1]
+        if (s >= e) continue
+        // 跳过纯换行符构成的空段，避免每个 '\n' 额外产出一个空 <w:p>
+        if (e - s == 1 && text[s] == '\n') continue
+        result.add(s to e)
+    }
+    return result.ifEmpty { listOf(0 to text.length) }
+}
+
 private fun mergedParagraphStyleAt(annotated: AnnotatedString, index: Int): ParagraphStyle {
     var result = ParagraphStyle()
     for (range in annotated.paragraphStyles) {
@@ -163,14 +196,8 @@ fun buildDocxBytes(document: TeleprompterDocument, effectiveSettings: Teleprompt
             if (text.isEmpty()) {
                 append("<w:p/>")
             } else {
-                var paraStart = 0
-                var i = 0
-                while (i <= text.length) {
-                    if (i == text.length || text[i] == '\n') {
-                        append(bodyParagraphXml(annotated, paraStart, i, document.fontFamily))
-                        paraStart = i + 1
-                    }
-                    i++
+                for ((paraStart, paraEnd) in paragraphRangesOf(annotated)) {
+                    append(bodyParagraphXml(annotated, paraStart, paraEnd, document.fontFamily))
                 }
             }
         }
@@ -188,7 +215,6 @@ fun buildDocxBytes(document: TeleprompterDocument, effectiveSettings: Teleprompt
             contentWidthPortrait = effectiveSettings.contentWidthPortrait,
             contentWidthLandscape = effectiveSettings.contentWidthLandscape,
         ),
-        editZoomScale = document.editZoomScale,
         subtitleStyle = document.subtitleStyle,
     )
 
