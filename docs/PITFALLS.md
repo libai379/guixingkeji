@@ -910,7 +910,7 @@ armed/onChapterContentChanged 都是低频事件，之前没暴露出这个问�
 **现象**：新建 `app/src/pub/AndroidManifest.xml` 后构建失败：
 ```
 Execution failed for task ':app:processGkdPubDebugMainManifest'
-> ManifestMerger2$MergeFailureException: Error parsing F:\gkd-fork\app\src\pub\AndroidManifest.xml
+> ManifestMerger2$MergeFailureException: Error parsing F:\guixing\app\src\pub\AndroidManifest.xml
 ```
 只说"解析失败"，**没有行号、没有列号、没有说到底哪里不对**，光看这条信息完全无从下手。
 
@@ -938,7 +938,7 @@ python -c "import xml.dom.minidom; xml.dom.minidom.parse(r'app/src/pub/AndroidMa
 
 ## 想让 git 历史"干净"，删文件必须在 `git init` 之前——晚一步就永远留在历史里
 
-**现象**：公开版（`F:\gkd-public`）刻意不复制私人版的 `.git`，就是为了让历史里不存在"去广告""虚拟
+**现象**：公开版（`F:\guixingkeji`）刻意不复制私人版的 `.git`，就是为了让历史里不存在"去广告""虚拟
 定位"的任何源码（否则 `git log -p` 一把就能全还原，等于没删）。建仓时也确实先删源码再
 `git init`。但验证备份 bundle 能不能还原时顺手查了一下历史，发现里面**仍然躺着三个被删功能的
 文件**：`app/src/test/.../mockloc/MockLocationCoordTransformTest.kt`（坐标纠偏算法）、

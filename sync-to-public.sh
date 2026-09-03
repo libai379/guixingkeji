@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把私人版(F:\gkd-fork)的共用代码同步到公开版(F:\gkd-public) —— 2026-08-20
+# 把私人版(F:\guixing)的共用代码同步到公开版(F:\guixingkeji) —— 2026-08-20
 #
 # 背景：癸月拆成了两个独立工程（见 docs/DECISIONS.md 2026-08-20）。提词器、电话拦截、定位修改、
 # 液态玻璃组件两边都有且**内容完全一致**，改完一边必须同步另一边，否则两版逐渐产生差异。
@@ -15,12 +15,12 @@
 # 公开版"。后一种情况不会报错，只会在某天两边行为对不上时才被发现，而且大概率是别人先撞见。
 # --check 就是专门用来在出包前问一句"两边现在到底一不一致"。
 #
-# 执行后记得到 F:\gkd-public 编译一次确认，再各自出包。
+# 执行后记得到 F:\guixingkeji 编译一次确认，再各自出包。
 
 set -euo pipefail
 
-SRC="/f/gkd-fork"
-DST="/f/gkd-public"
+SRC="/f/guixing"
+DST="/f/guixingkeji"
 APPLY=0
 CHECK=0
 [ "${1:-}" = "--apply" ] && APPLY=1
@@ -150,5 +150,5 @@ fi
 
 if [ "$APPLY" = "1" ] && [ "$changed" != 0 ]; then
   echo
-  echo "下一步：cd /f/gkd-public && ./gradlew.bat :app:assembleGkdDebug 验证编译"
+  echo "下一步：cd /f/guixingkeji && ./gradlew.bat :app:assembleGkdDebug 验证编译"
 fi

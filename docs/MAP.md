@@ -124,5 +124,5 @@ cacheDir/shared/           对外分享用的临时文件（诊断日志导出�
 
 ## 四、两个工程的关系
 
-见 `CLAUDE.md` 开头。一句话：私人版 `F:\gkd-fork` 是改动源头，公开版 `F:\gkd-public` 靠
+见 `CLAUDE.md` 开头。一句话：私人版 `F:\guixing` 是改动源头，公开版 `F:\guixingkeji` 靠
 `sync-to-public.sh` 单向同步，`Edition.kt` 等 15 个文件永不覆盖。

@@ -600,8 +600,8 @@ BuildConfig 开关，不会出现"说明书里写了但应用里找不到"。浮
 解包能看到。用户据此明确选择："公开版直接做备份，重新开一个文件夹，直接复制过去"。
 
 **决定**：撤销 edition 维度，恢复单一 `channel` 维度和原来的 `assembleGkdDebug`。改为：
-- **私人版** `F:\gkd-fork` —— 全部 5 个功能，applicationId `li.songe.gkd.taiclear`（不变）
-- **公开版** `F:\gkd-public` —— 3 个功能，applicationId `li.songe.gkd.guiyue`，**独立 git 仓库**
+- **私人版** `F:\guixing` —— 全部 5 个功能，applicationId `li.songe.gkd.taiclear`（不变）
+- **公开版** `F:\guixingkeji` —— 3 个功能，applicationId `li.songe.gkd.guiyue`，**独立 git 仓库**
 
 **为什么不复制 .git**：版本历史里含有被删功能的完整源码，一起带过去等于没删（`git log -p` 就能
 全部还原）。公开版是 `git init` 从零开始的新仓库。

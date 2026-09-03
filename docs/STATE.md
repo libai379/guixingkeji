@@ -30,6 +30,25 @@
 6. **Word 段落修复未在真机验证**。必须**重新导出一次** docx 再导入才验得出来——旧的那份
    `/sdcard/Download/WeiXin/沉香话术.docx` 本身就是被压平过的导出件（19 段），拿它验证不出效果。
 
+## 2026-09-03 工程目录改名 + 启动页主题交接给 codex
+
+**目录改名**：`F:\gkd-fork` → **`F:\guixing`**（癸星，私人版），
+`F:\gkd-public` → **`F:\guixingkeji`**（癸星科技，公开版）。
+同步更新了 `sync-to-public.sh` 的 SRC/DST、`CLAUDE.md`、以及 docs 下全部 md 里的硬编码路径，
+两个仓库各自更新。改名后已验证：同步脚本 `--check` 一致性通过、两版 `assembleGkdDebug` 均成功。
+改名前先 `gradlew --stop` 停掉守护进程释放文件锁。
+⚠️ 我的记忆里和历史提交信息里仍会出现旧路径，以本条为准。
+
+**启动页主题任务交接给 codex**，交接单在 `docs/HANDOFF-LAUNCHER-THEME.md`（一次性文件，
+任务完成后可删）。里面写死了目录结构、启动页组合树、前景色策略、5 条真机踩出来的坑、
+构建/同步/模拟器验证的完整命令，目的是让对方不用自己翻仓库摸索。
+
+**日志分工（重要，别混）**：
+- Claude 维护 `STATE.md` / `PITFALLS.md` / `DECISIONS.md` / `MAP.md`。
+- codex 写 `docs/LOG-CODEX.md`，**不写上面四份**；它若发现值得进 PITFALLS 的坑，写在自己的
+  日志里并注明"建议提升到 PITFALLS"，由人决定合并。
+- git commit 各自署名，不互相冒用。
+
 ## 2026-09-02 这一轮（背景调节修正 + 启动页标题 + 液态默认改朴素白底）
 
 **背景五项调节的语义修正**（真机/模拟器实测驱动，改了三轮）：
@@ -187,7 +206,7 @@ path 导致 `pathSuffix` 匹配不上，于是**打开任意文件（含 .docx�
 **遗留**：
 - 测试过程中在库里留下 3 篇测试文档（1 篇空「未命名文档」、1 篇导入生成的「沉香话术」副本、
   1 篇「plainword」），**等用户决定是否删除**。库现共 16 篇。
-- **公开版 `F:\gkd-public` 尚未同步**（提词器是共用代码，按规矩要跑 `sync-to-public.sh`）。
+- **公开版 `F:\guixingkeji` 尚未同步**（提词器是共用代码，按规矩要跑 `sync-to-public.sh`）。
 - **尚未 commit**。装机前的库备份在
   `F:\apk-out\teleprompter-backup\teleprompter_library_pre-migration_LIVE_20260827.json`。
 
@@ -197,7 +216,7 @@ path 导致 `pathSuffix` 匹配不上，于是**打开任意文件（含 .docx�
 
 | | 私人版 | 公开版 |
 |---|---|---|
-| 路径 | `F:\gkd-fork`（本仓库） | `F:\gkd-public` |
+| 路径 | `F:\guixing`（本仓库） | `F:\guixingkeji` |
 | applicationId | `li.songe.gkd.taiclear` | `li.songe.gkd.guiyue` |
 | 功能 | 5 个全有 | 定位修改 / 提词器 / 电话拦截 |
 | git | 原有历史 | 全新仓库，**故意不带私人版历史** |
@@ -210,10 +229,10 @@ path 导致 `pathSuffix` 匹配不上，于是**打开任意文件（含 .docx�
 **改完共用代码怎么同步**：不要手工 cp，用私人版根目录的 `sync-to-public.sh`：
 
 ```bash
-cd /f/gkd-fork
+cd /f/guixing
 bash sync-to-public.sh            # 先预览会同步哪些文件
 bash sync-to-public.sh --apply    # 确认无误后执行
-cd /f/gkd-public && ./gradlew.bat :app:assembleGkdDebug   # 必须编译验证
+cd /f/guixingkeji && ./gradlew.bat :app:assembleGkdDebug   # 必须编译验证
 ```
 
 脚本的价值不在"复制"，而在于**它记住了 15 个绝对不能覆盖的文件**——那些两边是故意不同的
@@ -275,8 +294,8 @@ SettingsStore/CoroutineExt/LocalExt`、清单、构建脚本），以及**公开
 
 备份（已完成并验证）：
 ```
-F:ackup\gkd-fork-20260820.bundle     5.5 MB
-F:ackup\gkd-public-20260820.bundle   0.7 MB
+F:ackup\guixing-20260820.bundle     5.5 MB
+F:ackup\guixingkeji-20260820.bundle   0.7 MB
 ```
 两个都做过真还原测试（clone 出来核对内容），不是只看文件生成。⚠️ 目前三份 bundle 都在同一块 F 盘，
 **建议拷一份到网盘/移动硬盘**，否则硬盘挂了全没。
@@ -622,7 +641,7 @@ manifest 的 `android:icon`/`android:roundIcon` 从 `@drawable/ic_launcher` 改�
 ## 环境
 
 SDK: `F:\android_sdk`　平台工具: `F:\android_sdk\platform-tools\adb.exe`
-构建: `cd F:\gkd-fork && ./gradlew.bat :app:assembleGkdDebug`，产物在
+构建: `cd F:\guixing && ./gradlew.bat :app:assembleGkdDebug`，产物在
 `app/build/outputs/apk/gkd/debug/app-gkd-debug.apk`，习惯性 `cp` 一份带时间戳/改动摘要的文件名到
 `F:\apk-out\`（手动步骤，不是 Gradle 任务自动做的）。
 真实包名：`li.songe.gkd.taiclear.debug`（debug 构建，gkd 渠道）——见上面"已知但未修的问题"，`adb`

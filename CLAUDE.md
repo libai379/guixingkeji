@@ -15,7 +15,7 @@
 
 | | 私人版 | 公开版 |
 |---|---|---|
-| 路径 | `F:\gkd-fork` | `F:\gkd-public`（**本仓库**） |
+| 路径 | `F:\guixing` | `F:\guixingkeji`（**本仓库**） |
 | applicationId | `li.songe.gkd.taiclear` | `li.songe.gkd.guiyue` |
 | 功能 | 5 个全有 | 定位修改 / 提词器 / 电话拦截 |
 | git | 原有完整历史 | 全新仓库，**故意不带私人版历史** |
@@ -27,15 +27,15 @@
 ### ⚠️ 共用代码不要在本仓库改
 
 提词器、电话拦截、定位修改、液态玻璃组件两边都有，且**当前字节完全一致**。同步脚本是**单向的**
-（私人版 → 公开版），所以：**共用代码的修改一律先在私人版 `F:\gkd-fork` 做，再同步过来。**
+（私人版 → 公开版），所以：**共用代码的修改一律先在私人版 `F:\guixing` 做，再同步过来。**
 在本仓库直接改共用文件，下次同步会被无声覆盖掉。
 
 ```bash
-cd /f/gkd-fork
+cd /f/guixing
 bash sync-to-public.sh            # 先预览会同步什么
 bash sync-to-public.sh --apply    # 确认后执行
 bash sync-to-public.sh --check    # 只检查一致性，有漂移就非 0 退出（出包前跑）
-cd /f/gkd-public && ./gradlew.bat :app:assembleGkdDebug   # 必须编译验证
+cd /f/guixingkeji && ./gradlew.bat :app:assembleGkdDebug   # 必须编译验证
 ```
 
 只有**公开版专属**的东西才在本仓库直接改：`Edition.kt`、启动页那两个文件、清单、构建脚本，
@@ -72,7 +72,7 @@ GKD 的 fork，显示名**癸月**，开发者署名**癸星人**。本仓库是
 
 ```
 SDK:    F:\android_sdk          代理: 127.0.0.1:10809
-构建:   cd F:\gkd-public && ./gradlew.bat :app:assembleGkdDebug    （私人版同名任务）
+构建:   cd F:\guixingkeji && ./gradlew.bat :app:assembleGkdDebug    （私人版同名任务）
 产物:   app/build/outputs/apk/gkd/debug/app-gkd-debug.apk
 交付:   手动 cp 到 F:\apk-out\癸月-{私人版|公开版}-YYYYMMDD-HHMMSS.apk（Gradle 不自动做）
 装机:   adb 能连就 install -r；连不上就 explorer.exe "F:\apk-out" 让用户自己用 QQ 传
@@ -139,7 +139,7 @@ SDK:    F:\android_sdk          代理: 127.0.0.1:10809
 
 1. 会话结束 `git commit`（**提交前先问用户**）。
 2. 重大改动后生成 bundle 全量备份，拷到网盘/移动硬盘：
-   `git bundle create F:\backup\gkd-fork-YYYYMMDD.bundle --all`（公开版同理，分开备份）
+   `git bundle create F:\backup\guixing-YYYYMMDD.bundle --all`（公开版同理，分开备份）
 
 **推送到 GitHub 前必须先跟用户确认** —— GKD 是 GPL-3.0，fork 公开分发要考虑协议义务（本仓库虽已
 删除大部分上游代码，但仍有保留部分）。另外本仓库的 git 历史是从零新建的，**绝对不要把私人版的
