@@ -9,12 +9,16 @@
 
 1. **两个仓库都还没 commit**。私人版和公开版全部改动都在工作区，没有任何提交。硬盘挂了就全没
    （只有本地 git）。提交前按规矩先问用户。
-2. **参数归中性脚本 `neutralize.js` 还没执行**。脚本本身写好并干跑验证过（10 处改动、5 项自检
-   全 true），但**需要手机在线**：必须先 `adb force-stop` 应用（否则内存里的 StateFlow 会把推上去
-   的文件覆盖掉），再 pull → 改 → push → 重启 → 拉回来验证。脚本在
-   `<scratchpad>/teleprompter_check/neutralize.js`，用法 `node neutralize.js <in> <out> --apply`。
-   要改的内容：全部文档 `overallScale`/`lineHeightMultiplier` 归 1；原始沉香话术
-   （id `7759c727-b115-4c3d-be91-efcd894a82b4`）`fontSizeSp` → 16.846066。滚动速度等真全局字段不动。
+2. ~~参数归中性脚本 `neutralize.js`~~ —— **2026-09-03 决定跳过，不再是待办**。
+   连上真机后干跑发现库里情况已完全变化：原本要清的是我测试时留下的残留值（如 fontSizeSp
+   51.699078），但用户中途重新导入过文稿，**原始文档 `7759c727` 已不存在**（章节数也从 9 变成
+   11），残留值随之消失。现存 2 篇文档的 fontSizeSp 都已是中性的 16，只剩 3 处 3% 以内的偏差
+   （0.9739 / 1.0017 / 0.9904，像是拖滑块的手抖余量），肉眼不可见。用户判断"跳过"。
+   脚本保留在 scratchpad，将来若真需要批量归中性可直接复用。
+   **这条本身是个教训**：数据修复脚本从写好到执行之间隔了几天，期间数据被用户改动，
+   脚本预设的前提（文档 id、字段取值）已经失效。**离线写好的数据修复脚本，执行前必须重新干跑
+   一遍看前提还成不成立，不能凭几天前的干跑结果直接 --apply。**
+
 3. **验收 A（三页断行逐字符一致）从未执行**。需要真机取三个模式的 `TextLayoutResult`，
    `getLineStart`/`getLineEnd` 全量 dump 做 diff。JVM 侧做不了（项目没有 Robolectric，
    `ui-test-junit4` 只在 androidTest），已确认不是"偷懒不做"而是构不出 TextLayoutResult。
