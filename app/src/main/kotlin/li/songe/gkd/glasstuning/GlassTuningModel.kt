@@ -181,7 +181,12 @@ private val PlainGlassParams = GlassParams(
 
 /** 所有 target 统一用同一份朴素默认值——不再按 target 分叉。此前
  *  TeleprompterSettingsWindow 单独关色散是为了绕开它特有的可读性问题，而现在色散本来就是全局
- *  关闭的，那条特例失去了存在意义。 */
+ *  关闭的，那条特例失去了存在意义。
+ *
+ *  2026-09-04 - codex 曾给 GlassTarget.LauncherCard 单开过一份液态默认值（启动页那五张功能
+ *  胶囊），理由是启动页背后有用户自选背景可折射。**已按用户要求撤回**：用户明确定过"所有默认
+ *  预设最普通白色底"，默认值不该有例外；想要液态由用户自己在调参面板里调，那条路本来就是通的
+ *  （GlassTuningStore.paramsFor 优先取用户存的值，取不到才回落到这里）。 */
 fun defaultGlassParamsFor(target: GlassTarget): GlassParams = PlainGlassParams
 
 @Serializable

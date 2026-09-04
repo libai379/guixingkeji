@@ -21,6 +21,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -59,11 +61,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +76,11 @@ import li.songe.gkd.glasstuning.GlassTarget
 import li.songe.gkd.glasstuning.liveGlassParamsFor
 import li.songe.gkd.glasstuning.tunedGlass
 import li.songe.gkd.glassui.GlassBackgroundLayer
+import li.songe.gkd.glassui.GLASS_BG_BASE
+import li.songe.gkd.glassui.approximateBackgroundColor
+import li.songe.gkd.glassui.compositeOver
+import li.songe.gkd.glassui.prefersLightForegroundOnTop
+import li.songe.gkd.glassui.prefersLightForeground
 import li.songe.gkd.glassui.launcherBackgroundFlow
 import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.backdrops.layerBackdrop
@@ -111,23 +118,31 @@ private data class LauncherCardData(
     val icon: ImageVector,
     val title: String,
     val subtitle: String,
-    val accent: Color,
     val dimmed: Boolean = false,
     val onClick: () -> Unit,
 )
 
+/** 启动页标题的金色。选固定色而不是跟随背景自适应：金色在深浅两种底上都有足够对比，
+ *  而自适应黑/白遇到中间调背景时两头都不讨好（用户原话："金色字体不容易被背景吞掉"）。 */
+private val LauncherTitleGold = Color(0xFFD4A017)
+
+/** 深色前景基色。不用纯黑：纯黑压在白卡上过硬，这个近黑带一点冷调，跟金色标题也更协调。 */
+private val LauncherDarkForeground = Color(0xFF14121A)
+
+// Ambient-only palette for the animated default background. These colours never carry text,
+// icon, or interaction meaning on the launchpad.
 private val AccentPurple = Color(0xFF8B7CFF)
 private val AccentTeal = Color(0xFF3CE8D8)
 private val AccentMagenta = Color(0xFFFF5FC9)
 private val AccentAmber = Color(0xFFFFB74D)
-private val AccentRed = Color(0xFFFF6B6B)
 
 // 近似全圆角长条胶囊 (2026-08-16, "方块卡片→长条胶囊" 改版) - height fixed, width fills the
 // column, cornerRadius passed into tunedGlass() below is clamped to min(width,height)/2 by
 // RoundedCornerShape itself, so a value far bigger than this height (999.dp) always resolves to a
 // true capsule regardless of the row's actual on-screen width.
 // 80dp -> 40dp（缩一半）-> 53dp（2026-08-16，"高度再增加 1/3"，40 * 4/3 约等于 53）。
-private val LauncherCapsuleHeight = 53.dp
+private val LauncherCapsuleHeight = 68.dp
+private val LauncherCapsuleGap = 8.dp
 
 @Composable
 private fun LauncherScreen(
@@ -148,34 +163,39 @@ private fun LauncherScreen(
     var aboutOpen by remember { mutableStateOf(false) }
 
     // 2026-08-20 - 本工程是公开版："去广告"和"虚拟定位"两张卡片连同它们的源码已经整个删掉，
-    // 不是靠开关隐藏，所以这里就是一份普通的三项列表。私人版在 F:\gkd-fork。
+    // 不是靠开关隐藏，所以这里就是一份普通的三项列表。私人版在 F:\guixing。
     val cards = remember {
         listOf(
             LauncherCardData(
                 icon = Icons.Filled.LocationOn,
                 title = "定位修改",
                 subtitle = "修改照片视频 GPS 信息",
-                accent = AccentTeal,
                 onClick = { onOpenWebTool("gps-modifier.html") },
             ),
             LauncherCardData(
                 icon = Icons.AutoMirrored.Filled.Notes,
                 title = "提词器",
                 subtitle = "拍摄直播滚动提词",
-                accent = AccentMagenta,
                 onClick = onOpenTeleprompter,
             ),
-            // 第五张卡片 (2026-08-16) - 雏形阶段，用户明确要求先接入启动页方便自己直接测试，不用
-            // 再靠 adb 拉起 CallGuardActivity。图标/文案是占位，细节以后再调（用户原话）。
+            // 第三张卡片 (2026-08-16) - 雏形阶段，用户明确要求先接入启动页方便自己直接测试，不用
+            // 再靠 adb 拉起 CallGuardActivity。
             LauncherCardData(
                 icon = Icons.Filled.PhoneDisabled,
                 title = "电话拦截",
                 subtitle = "设置黑白名单拦截来电",
-                accent = AccentRed,
                 onClick = onOpenCallGuard,
             ),
         )
     }
+
+    // 2026-09-02 - 前景色不再写死白色。背景已经可以被用户调成任意颜色（含浅色），写死白字会让
+    // 标题/副标题/齿轮/版本行在浅色背景上整片消失（真机截图确认）。这里按背景的感知亮度选一次
+    // 基色，下面所有前景都从它派生。图片模式判断不了背景亮度，仍然按深色处理（保持白字）。
+    val fg = if (launcherBg.prefersLightForeground()) Color.White else LauncherDarkForeground
+    // 背景的近似实色，用来推算卡片表面颜色。图片模式判断不了（要解码采样整张图），退回深色基底
+    // ——跟 prefersLightForeground() 对图片模式的处理保持一致，不各写一套。
+    val bgApproxColor = launcherBg.approximateBackgroundColor() ?: GLASS_BG_BASE
 
     Box(Modifier.fillMaxSize()) {
         if (backdrop != null) {
@@ -206,7 +226,7 @@ private fun LauncherScreen(
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 20.dp)
                 .padding(top = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -214,19 +234,25 @@ private fun LauncherScreen(
                 // 读 R.string.app_name，不写死——私人版是"癸星"，公开版是"癸星科技"，
                 // 靠各自的 strings.xml 区分，这里两边代码保持一致，少一处要人工同步的差异。
                 text = META.appName,
-                color = Color.White,
-                fontSize = 40.sp,
+                // 2026-09-02 - 固定金色，不跟随背景明暗自适应。金色在深浅两种底上都还立得住，
+                // 而自适应黑/白在中间调背景（比如那张淡薄荷）上两边都不讨好。左上角 + 宋体 + 字号
+                // 减半也是同一批要求。
+                color = LauncherTitleGold,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 28.dp),
+                fontFamily = FontFamily.Serif,
+                modifier = Modifier.align(Alignment.Start).padding(bottom = 16.dp),
             )
 
             cards.forEachIndexed { index, card ->
                 LauncherCard(
                     data = card,
                     backdrop = backdrop,
+                    fg = fg,
+                    bgApproxColor = bgApproxColor,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = if (index == 0) 0.dp else 12.dp)
+                        .padding(top = if (index == 0) 0.dp else LauncherCapsuleGap)
                         .then(rememberEntranceModifier(index)),
                 )
             }
@@ -234,18 +260,21 @@ private fun LauncherScreen(
             // 版本号 + 开发者，常驻显示（2026-08-20 用户要求"加版本号，加关于以及开发者，使用
             // 说明等，在启动页面"）。点一下展开完整的关于/使用说明浮层——这样版本信息一眼可见，
             // 又不占用卡片下方那片"以后放更多功能"的空间。
-            Text(
-                text = "${Edition.LABEL} v${META.versionName} · 开发者：${Edition.DEVELOPER}",
-                color = Color.White.copy(alpha = 0.55f),
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .padding(top = 20.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { aboutOpen = true }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .then(rememberEntranceModifier(cards.size)),
-            )
         }
+
+        Text(
+            text = "${Edition.LABEL} v${META.versionName} · 开发者：${Edition.DEVELOPER}",
+            color = fg.copy(alpha = 0.68f),
+            fontSize = 12.sp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .clickable { aboutOpen = true }
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .then(rememberEntranceModifier(cards.size)),
+        )
 
         IconButton(
             onClick = onOpenAppearance,
@@ -257,7 +286,7 @@ private fun LauncherScreen(
             Icon(
                 Icons.Filled.Settings,
                 contentDescription = "外观设置",
-                tint = Color.White.copy(alpha = 0.85f),
+                tint = fg.copy(alpha = 0.72f),
             )
         }
 
@@ -362,6 +391,8 @@ private fun rememberEntranceModifier(index: Int): Modifier {
 private fun LauncherCard(
     data: LauncherCardData,
     backdrop: Backdrop?,
+    fg: Color,
+    bgApproxColor: Color,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -380,6 +411,23 @@ private fun LauncherCard(
     // 一致" instead of quietly staying frozen at whatever was true on first composition.
     val glassParams = liveGlassParamsFor(GlassTarget.LauncherCard)
 
+    // 2026-09-04 - 卡片内容的前景色必须跟着**卡片自己的表面颜色**走，不能跟页面背景走。
+    //
+    // 修的是一个真 bug（模拟器实拍确认）：卡片默认被 tint 画成不透明白底，而 fg 是按页面背景
+    // 亮度算的——深色背景下 fg = 白色，于是白卡片上写白字，五张卡整个变成空白色块。此前标题用的
+    // 是 lerp(fg, accent, 0.85f)，彩色在白卡上还看得见，所以这个矛盾一直潜伏着；标题改成纯 fg
+    // 之后才现形。
+    //
+    // 卡片表面 = tint 色以 tint.alpha 叠在背景上。tint 不透明（默认）→ 恒为白 → 深色前景；
+    // 用户把 tint.alpha 拖低让玻璃透出来 → 表面趋近背景 → 前景自动跟着背景走。两种情况都对。
+    val cardFg = if (backdrop != null && glassParams.tint.enabled) {
+        val surface = Color(glassParams.tint.colorArgb.toInt())
+            .compositeOver(bgApproxColor, glassParams.tint.alpha)
+        if (surface.prefersLightForegroundOnTop()) Color.White else LauncherDarkForeground
+    } else {
+        fg
+    }
+
     if (backdrop != null) {
         Box(
             modifier
@@ -393,9 +441,10 @@ private fun LauncherCard(
                     // customizable gradient/image, each capsule already refracts a different slice
                     // of it, which is differentiation enough without also painting the glass body.
                     layerBlock = {
-                        val s = 1f - 0.015f * pressProgress
+                        val s = 1f - 0.018f * pressProgress
                         scaleX = s
                         scaleY = s
+                        alpha = 1f - 0.04f * pressProgress
                     },
                 )
                 .clickable(interactionSource = interactionSource, indication = null, onClick = data.onClick)
@@ -404,7 +453,7 @@ private fun LauncherCard(
                     contentDescription = "${data.title}，${data.subtitle}"
                 },
         ) {
-            LauncherCardContent(data)
+            LauncherCardContent(data, cardFg)
         }
     } else {
         // API < 33: no AGSL runtime shaders available, fall back to a plain
@@ -413,19 +462,20 @@ private fun LauncherCard(
             modifier
                 .height(LauncherCapsuleHeight)
                 .graphicsLayer {
-                    val s = 1f - 0.015f * pressProgress
+                    val s = 1f - 0.018f * pressProgress
                     scaleX = s
                     scaleY = s
+                    alpha = 1f - 0.04f * pressProgress
                 }
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = 0.12f))
+                .background(fg.copy(alpha = 0.10f))
                 .clickable(interactionSource = interactionSource, indication = null, onClick = data.onClick)
                 .alpha(if (data.dimmed) 0.55f else 1f)
                 .semantics(mergeDescendants = true) {
                     contentDescription = "${data.title}，${data.subtitle}"
                 },
         ) {
-            LauncherCardContent(data)
+            LauncherCardContent(data, cardFg)
         }
     }
 }
@@ -435,51 +485,50 @@ private fun LauncherCard(
 // AppearanceScreen ListItem rows), not scope creep: a full-width tappable row reads like a list
 // item, and a list item with no "this is tappable" hint is the odd one out here, not the chevron.
 @Composable
-private fun BoxScope.LauncherCardContent(data: LauncherCardData) {
+private fun BoxScope.LauncherCardContent(data: LauncherCardData, fg: Color) {
     Row(
         modifier = Modifier
             .matchParentSize()
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = data.icon,
             contentDescription = null,
-            tint = lerp(Color.White, data.accent, 0.5f),
-            modifier = Modifier.size(36.dp),
+            tint = fg.copy(alpha = 0.82f),
+            modifier = Modifier.size(28.dp),
         )
         // 2026-08-16 - 胶囊高度砍半后（80dp->40dp），图标/标题字号不变的前提下，标题+副标题两行
         // 堆叠肯定放不下 36dp 高的图标 - 副标题挪到跟标题同一行（不再是 Column 纵向堆叠），整体
         // 只占一行的高度。maxLines=1+ellipsis 兜底，防止任何一侧文字把行高撑爆。
-        Row(
+        Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 16.dp),
-            verticalAlignment = Alignment.Bottom,
+                .padding(start = 16.dp, end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // 2026-08-16 - 标题从统一白字改成每个功能自己的强调色（跟图标同一份 accent，但混得更
             // 深/更饱和，不是照抄图标那个偏浅的 0.5 混合），加粗从 SemiBold 提到 Bold。
             Text(
                 text = data.title,
-                color = lerp(Color.White, data.accent, 0.85f),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
+                color = fg,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = data.subtitle,
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 10.sp,
+                color = fg.copy(alpha = 0.68f),
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 8.dp, bottom = 1.dp).weight(1f, fill = false),
             )
         }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.35f),
+            tint = fg.copy(alpha = 0.48f),
             modifier = Modifier.size(20.dp),
         )
     }

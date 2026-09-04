@@ -122,3 +122,24 @@ fun GlassBackgroundConfig.prefersLightForeground(): Boolean {
     val luminance = 0.299f * c.red + 0.587f * c.green + 0.114f * c.blue
     return luminance < 0.5f
 }
+
+/**
+ * 把一个半透明色叠在 [base] 上得到的实色。用来回答"这块玻璃卡片最终看起来是什么颜色"。
+ *
+ * 2026-09-04 - 为修"深色背景下启动页卡片内容全部消失"而加。那个 bug 的成因是：卡片前景色跟着
+ * **页面背景**的明暗走，而卡片本身被 tint 画成了不透明白底——深色背景 → 前景判定为白 → 白卡片
+ * 上写白字。前景色必须跟着**卡片自己的表面颜色**走，而卡片表面 = tint 色以 tint.alpha 叠在背景上。
+ */
+fun Color.compositeOver(base: Color, alpha: Float): Color {
+    val a = alpha.coerceIn(0f, 1f)
+    return Color(
+        red = red * a + base.red * (1f - a),
+        green = green * a + base.green * (1f - a),
+        blue = blue * a + base.blue * (1f - a),
+    )
+}
+
+/** 这个颜色上面该压浅色前景（白字）还是深色前景。阈值用 Rec.601 感知亮度，理由同
+ *  [prefersLightForeground]：RGB 均值会在绿色/蓝色上判断错。 */
+fun Color.prefersLightForegroundOnTop(): Boolean =
+    (0.299f * red + 0.587f * green + 0.114f * blue) < 0.5f
