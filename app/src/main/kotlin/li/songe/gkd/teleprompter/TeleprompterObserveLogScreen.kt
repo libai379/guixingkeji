@@ -28,6 +28,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import li.songe.gkd.observelog.ObserveLogExportAction
 
 /**
  * In-app viewer for TeleprompterObserveLog - see that object's doc comment for why this exists
@@ -53,8 +54,13 @@ fun TeleprompterObserveLogScreen(onClose: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { clipboard.setText(AnnotatedString(entries.joinToString("\n"))) }) {
-                Text("复制全部")
+                Text("复制")
             }
+            ObserveLogExportAction(
+                baseName = "提词器日志",
+                title = "提词器 诊断日志",
+                lines = { entries.toList() },
+            )
             TextButton(onClick = { TeleprompterObserveLog.clear() }) {
                 Text("清空")
             }

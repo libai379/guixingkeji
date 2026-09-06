@@ -182,11 +182,15 @@ data class TeleprompterSettings(
     // Settings window's own glass look (2026-08-13/14) - separate from the dev-only glass tuning
     // panel (齿轮→外观→玻璃效果调节), which only ever adjusts a preview and never applied to the
     // real screen. These two live-apply immediately and persist through the same store as every
-    // other setting here. blurRadiusDp default matches the outline drawer's look (0, no extra
-    // blur). settingsPanelOpacity's default is nonzero (2026-08-14: tint, not blur, is this
-    // target's real readability knob now - see the tunedGlass() call site's own comment) - not
-    // "no visible change on upgrade" like blurRadiusDp, an intentional new baseline look.
-    val settingsPanelBlurRadiusDp: Float = 0f,
+    // other setting here. settingsPanelOpacity's default is nonzero (2026-08-14: tint, not blur, is
+    // this target's real readability knob now - see the tunedGlass() call site's own comment).
+    //
+    // 2026-09-05 - 模糊度默认从 0 改成满值（用户要求"默认模糊度百分百"）。
+    // ⚠️ **光改这个默认值对老用户无效**：库文件用 `Json { encodeDefaults = true }` 落盘
+    // （util/Singleton.kt），也就是说旧的 0 早就被明明白白写进 teleprompter_library.json 了，
+    // 解码时根本轮不到数据类默认值。真正让已装机的设备变成满值的是
+    // migrateV3SettingsPanelBlurFull()，这里改默认值只管新装/清过数据的设备。
+    val settingsPanelBlurRadiusDp: Float = SETTINGS_PANEL_BLUR_MAX_DP,
     // A neutral overlay's alpha on top of the panel's blur/lens - 0% = fully transparent (no
     // overlay), 100% = fully opaque (solid color panel). Default sits at "noticeable but doesn't
     // cover the panel's own text" per on-device judgment call, not a precise/final number - the
@@ -238,14 +242,21 @@ fun TeleprompterDisplayOverrides.withFallback(base: TeleprompterDisplayOverrides
     contentWidthLandscape = contentWidthLandscape ?: base.contentWidthLandscape,
 )
 
+/** 设置面板模糊度滑块的量程上限，也就是界面上说的"100%"。数据类默认值、滑块 valueRange、
+ *  百分比换算三处共用这一个常量——它们必须是同一个数，分开写迟早对不上。 */
+const val SETTINGS_PANEL_BLUR_MAX_DP = 30f
+
 /** 迁移到"五项每篇文档独立"之后的库结构版本号。 */
 const val TELEPROMPTER_SCHEMA_PER_DOCUMENT_DISPLAY = 1
 
 /** 删除 editZoomScale 之后的库结构版本号。 */
 const val TELEPROMPTER_SCHEMA_NO_EDIT_ZOOM = 2
 
+/** 设置面板模糊度拉满之后的库结构版本号。 */
+const val TELEPROMPTER_SCHEMA_PANEL_BLUR_FULL = 3
+
 /** 当前库结构版本号。 */
-const val TELEPROMPTER_SCHEMA_CURRENT = TELEPROMPTER_SCHEMA_NO_EDIT_ZOOM
+const val TELEPROMPTER_SCHEMA_CURRENT = TELEPROMPTER_SCHEMA_PANEL_BLUR_FULL
 
 /**
  * 库结构迁移总入口，按版本号顺序叠加执行。名字沿用第一次迁移时的叫法，没改——它已经被
@@ -256,7 +267,27 @@ const val TELEPROMPTER_SCHEMA_CURRENT = TELEPROMPTER_SCHEMA_NO_EDIT_ZOOM
  */
 fun TeleprompterLibrary.migrateToPerDocumentDisplaySettings(): TeleprompterLibrary {
     if (schemaVersion >= TELEPROMPTER_SCHEMA_CURRENT) return this
-    return migrateV1PerDocumentDisplay().migrateV2DropEditZoomScale()
+    return migrateV1PerDocumentDisplay()
+        .migrateV2DropEditZoomScale()
+        .migrateV3SettingsPanelBlurFull()
+}
+
+/**
+ * v3（2026-09-05）：把设置面板的模糊度一次性拉到满值（用户要求"默认模糊度百分百"）。
+ *
+ * 为什么必须有这一步、光改数据类默认值不够：库文件是用 `encodeDefaults = true` 编码的，旧的
+ * `settingsPanelBlurRadiusDp: 0.0` 已经实实在在写在磁盘上，解码时会覆盖掉数据类默认值。这跟 v1
+ * 那次"日志说迁了、磁盘没迁"是同一类陷阱的另一面：**默认值只对文件里没有这个键的数据生效**。
+ *
+ * 这一步会覆盖用户自己调过的值。这是有意的、也是用户这次要的（"默认模糊度百分百"）——只跑一次，
+ * 之后 schemaVersion 到 3，用户再拖滑块调成别的值不会被再改回去。
+ */
+private fun TeleprompterLibrary.migrateV3SettingsPanelBlurFull(): TeleprompterLibrary {
+    if (schemaVersion >= TELEPROMPTER_SCHEMA_PANEL_BLUR_FULL) return this
+    return copy(
+        settings = settings.copy(settingsPanelBlurRadiusDp = SETTINGS_PANEL_BLUR_MAX_DP),
+        schemaVersion = TELEPROMPTER_SCHEMA_PANEL_BLUR_FULL,
+    )
 }
 
 /**
@@ -333,5 +364,6 @@ data class TeleprompterLibrary(
     //   0 = 2026-08-26 之前的"全局值 + 每篇可选覆盖"两层模型（老文件里没有这个键，解码落到 0）
     //   1 = 五项显示设置每篇文档独立
     //   2 = 删除 editZoomScale
+    //   3 = 设置面板模糊度拉满
     val schemaVersion: Int = 0,
 )

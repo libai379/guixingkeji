@@ -28,6 +28,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import li.songe.gkd.observelog.ObserveLogExportAction
 
 /** In-app viewer for [CallGuardObserveLog] - 同 teleprompter 那份查看器一样的结构，"复制全部"
  * 按钮把日志整段塞进剪贴板，方便不方便连 adb 时直接粘贴发过来。 */
@@ -51,8 +52,13 @@ fun CallGuardObserveLogScreen(onClose: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { clipboard.setText(AnnotatedString(entries.joinToString("\n"))) }) {
-                Text("复制全部")
+                Text("复制")
             }
+            ObserveLogExportAction(
+                baseName = "电话拦截日志",
+                title = "电话拦截 诊断日志",
+                lines = { entries.toList() },
+            )
             TextButton(onClick = { CallGuardObserveLog.clear() }) {
                 Text("清空")
             }

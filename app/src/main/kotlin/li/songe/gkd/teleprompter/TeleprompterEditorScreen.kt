@@ -2236,15 +2236,18 @@ private fun TeleprompterSettingsWindow(
                 backdrop = backdrop,
                 valueRange = 0f..1f,
             )
+            // 2026-09-05 - 这里按百分比显示（用户就是按百分比说的："默认模糊度百分百"），dp 作为
+            // 括号里的实际值保留，方便跟"更多液态效果"面板里那个同名的 dp 参数对上号。
             Text(
-                "模糊度 ${settings.settingsPanelBlurRadiusDp.toInt()}dp（越高背后正文越糊，但跟面板自己文字重叠时更好认）",
+                "模糊度 ${(settings.settingsPanelBlurRadiusDp / SETTINGS_PANEL_BLUR_MAX_DP * 100).toInt()}%" +
+                    "（${settings.settingsPanelBlurRadiusDp.toInt()}dp，越高背后正文越糊，但跟面板自己文字重叠时更好认）",
                 style = MaterialTheme.typography.labelMedium,
             )
             LiquidSlider(
                 value = { settings.settingsPanelBlurRadiusDp },
                 onValueChange = { v -> onUpdate { it.copy(settingsPanelBlurRadiusDp = v) } },
                 backdrop = backdrop,
-                valueRange = 0f..30f,
+                valueRange = 0f..SETTINGS_PANEL_BLUR_MAX_DP,
             )
 
             Spacer(Modifier.height(20.dp))

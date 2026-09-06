@@ -1,7 +1,7 @@
 # codex 工作日志
 
 本文件由 codex 负责。**Claude 不写这里**，同理 codex 不写 `STATE.md` / `PITFALLS.md` /
-`DECISIONS.md` / `MAP.md`（分工见 `HANDOFF-LAUNCHER-THEME.md` 第 0 节）。
+`DECISIONS.md` / `MAP.md`（交接单 HANDOFF-LAUNCHER-THEME.md 任务完成后已删除，见 git 历史）。
 
 例外：下面第一条是 **Claude 代为补录**的——codex 在写日志之前就耗尽了额度，工作成果留在了
 未提交的工作区里。为了不让这段工作丢失，由 Claude 如实记录，并明确标出哪部分是 codex 做的、

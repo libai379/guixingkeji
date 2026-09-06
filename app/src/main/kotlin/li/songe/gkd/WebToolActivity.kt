@@ -19,10 +19,22 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material3.Icon
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import li.songe.gkd.observelog.WebToolObserveLog
+import li.songe.gkd.observelog.WebToolObserveLogScreen
+import li.songe.gkd.ui.style.AppTheme
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -33,6 +45,16 @@ class WebToolActivity : ComponentActivity() {
     private var webView: WebView? = null
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val sessions = ConcurrentHashMap<String, SaveSession>()
+
+    // 日志那层的引用。开关做成 View 的 visibility 而不是 Compose 状态：返回键的处理在
+    // onBackPressedDispatcher 里，那段代码看不见组合树内部的状态，而 visibility 它随时能读。
+    private var observeLogView: ComposeView? = null
+
+    private fun setObserveLogVisible(visible: Boolean) {
+        observeLogView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
+    }
+
+    private fun isObserveLogVisible() = observeLogView?.visibility == android.view.View.VISIBLE
 
     private class SaveSession(
         val outputStream: OutputStream,
@@ -70,6 +92,9 @@ class WebToolActivity : ComponentActivity() {
         }
         Log.d("WebConsole", "parsed uris=${uris?.joinToString { it.toString() }}")
         Log.d("WebConsole", "final uri count=${uris?.size ?: 0}")
+        WebToolObserveLog.log(
+            "选择文件返回 resultCode=${result.resultCode}, 文件数=${uris?.size ?: 0}",
+        )
         callback?.onReceiveValue(uris)
     }
 
@@ -86,9 +111,70 @@ class WebToolActivity : ComponentActivity() {
             return
         }
 
+        WebToolObserveLog.log("打开页面 $fileName")
+
         val webView = WebView(this)
         this.webView = webView
-        setContentView(webView)
+        // WebView + 一层 ComposeView 叠在同一个 FrameLayout 里：ComposeView 负责右下角那个日志
+        // 按钮和展开后的日志界面。用叠层而不是新开一个 Activity，是为了不动 AndroidManifest
+        // ——清单在同步脚本的 NEVER_COPY 里，改它意味着两个工程各改一遍。
+        val root = FrameLayout(this)
+        root.addView(
+            webView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        // 日志界面单独一个铺满的 ComposeView，关闭时设成 GONE。**不能**用一个铺满的 ComposeView
+        // 同时承载按钮和界面：铺满的那层即使画的是空白，也会挡在 WebView 前面参与触摸分发，地图选
+        // 点会时灵时不灵。GONE 的 View 根本不进分发，这是唯一没有歧义的写法。
+        val logView = ComposeView(this).apply {
+            visibility = android.view.View.GONE
+            setContent {
+                AppTheme {
+                    WebToolObserveLogScreen(onClose = { setObserveLogVisible(false) })
+                }
+            }
+        }
+        this.observeLogView = logView
+
+        // 按钮那层只占自己那么大，靠 gravity 贴右下角，其余区域完全不在这层里，WebView 照常收触摸。
+        val fabView = ComposeView(this).apply {
+            setContent {
+                AppTheme {
+                    SmallFloatingActionButton(onClick = { setObserveLogVisible(true) }) {
+                        Icon(
+                            Icons.Filled.Description,
+                            contentDescription = "诊断日志",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        root.addView(
+            logView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        root.addView(
+            fabView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.BOTTOM or android.view.Gravity.END,
+            ).apply {
+                val margin = (16 * resources.displayMetrics.density).toInt()
+                rightMargin = margin
+                bottomMargin = margin
+            },
+        )
+        setContentView(root)
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -142,6 +228,10 @@ class WebToolActivity : ComponentActivity() {
 
             override fun onConsoleMessage(message: String?, lineNumber: Int, sourceID: String?) {
                 Log.d("WebConsole", "$message ($sourceID:$lineNumber)")
+                // 页面本身的 console 就是这个模块最有价值的日志：Kotlin 侧只是个壳，选点/读写 EXIF
+                // 的实际过程全在 JS 里。sourceID 是完整的 file:// 路径，只留文件名，否则每行都被
+                // 一长串前缀顶到屏幕外。
+                WebToolObserveLog.log("[页面] $message (${sourceID?.substringAfterLast('/')}:$lineNumber)")
             }
         }
 
@@ -166,6 +256,12 @@ class WebToolActivity : ComponentActivity() {
         webView.loadUrl("file:///android_asset/web/$fileName")
 
         onBackPressedDispatcher.addCallback(this) {
+            // 日志界面开着时，返回键先关它——顺序放在网页那层之前，否则会直接退出整个功能，
+            // 用户看着日志按返回却整个页面没了。
+            if (isObserveLogVisible()) {
+                setObserveLogVisible(false)
+                return@addCallback
+            }
             // Let the page decide first (e.g. exit fullscreen player back to editor);
             // only finish the Activity if it reports it didn't consume the back press.
             webView.evaluateJavascript(
@@ -238,8 +334,10 @@ class WebToolActivity : ComponentActivity() {
                     val stream = FileOutputStream(file)
                     sessions[sessionId] = SaveSession(stream, Uri.fromFile(file), false, file, mime)
                 }
+                WebToolObserveLog.log("开始保存 name=$safeName, mime=$mime, session=${sessionId.take(8)}")
                 sessionId
             } catch (e: Exception) {
+                WebToolObserveLog.log("开始保存失败 name=$name, mime=$mime, err=$e")
                 ""
             }
         }
@@ -284,8 +382,10 @@ class WebToolActivity : ComponentActivity() {
                         null
                     )
                 }
+                WebToolObserveLog.log("保存完成 uri=${session.uri}")
                 session.uri.toString()
             } catch (e: Exception) {
+                WebToolObserveLog.log("保存失败 uri=${session.uri}, err=$e")
                 try {
                     session.outputStream.close()
                 } catch (e2: Exception) {

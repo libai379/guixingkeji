@@ -53,6 +53,22 @@ import li.songe.gkd.glasstuning.GlassTarget
 import li.songe.gkd.glasstuning.liveGlassParamsFor
 import li.songe.gkd.glasstuning.tunedGlass
 
+/*
+ * 面板文字颜色 —— 2026-09-05 由白改黑（用户要求"关于里面字体改为黑色"）。
+ *
+ * 改得动的前提是这块面板本来就是浅色底：默认液态参数是 PlainGlassParams（不透明白底，见
+ * glasstuning/GlassTuningModel.kt），白字其实一直是靠"深色背景"这个假设撑着的，用户把背景调浅
+ * 就看不见了——跟启动页卡片那次"白卡片上写白字"是同一个根因。改成黑字之后，下面 API<33 的降级
+ * 分支也必须跟着从深色底改成浅色底，否则那条路径上就轮到黑字配深底看不见了。
+ *
+ * ⚠️ 本文件在 sync-to-public.sh 的 NEVER_COPY 里（两版说明条目数量不同），这段改动是**两个工程
+ * 各改一遍**的，改这里记得同步看一眼 F:\guixing 那份。
+ */
+private val AboutTextPrimary = Color.Black
+private val AboutTextSecondary = Color.Black.copy(alpha = 0.72f)
+private val AboutTextLabel = Color.Black.copy(alpha = 0.55f)
+private val AboutDivider = Color.Black.copy(alpha = 0.14f)
+
 private data class UsageEntry(
     val title: String,
     val body: String,
@@ -127,10 +143,11 @@ fun LauncherAboutOverlay(
                             cornerRadius = 28.dp,
                         )
                     } else {
-                        // API < 33：没有 AGSL 运行时着色器，退化成不透明深色面板，保证可读。
+                        // API < 33：没有 AGSL 运行时着色器，退化成不透明面板，保证可读。跟着上面
+                        // 文字改黑一起从深色底换成浅色底——这条分支和液态那条必须同为浅底。
                         base
                             .clip(RoundedCornerShape(28.dp))
-                            .background(Color(0xFF15121F).copy(alpha = 0.96f))
+                            .background(Color(0xFFF7F7F7).copy(alpha = 0.98f))
                     }
                 }
                 .padding(horizontal = 20.dp, vertical = 18.dp),
@@ -138,7 +155,7 @@ fun LauncherAboutOverlay(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "关于",
-                    color = Color.White,
+                    color = AboutTextPrimary,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
@@ -147,7 +164,7 @@ fun LauncherAboutOverlay(
                     Icon(
                         Icons.Filled.Close,
                         contentDescription = "关闭",
-                        tint = Color.White.copy(alpha = 0.85f),
+                        tint = AboutTextSecondary,
                     )
                 }
             }
@@ -166,12 +183,12 @@ fun LauncherAboutOverlay(
                 InfoRow("开发者", Edition.DEVELOPER)
 
                 Spacer(Modifier.height(18.dp))
-                HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+                HorizontalDivider(color = AboutDivider)
                 Spacer(Modifier.height(18.dp))
 
                 Text(
                     "使用说明",
-                    color = Color.White,
+                    color = AboutTextPrimary,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -181,14 +198,14 @@ fun LauncherAboutOverlay(
                     if (index > 0) Spacer(Modifier.height(16.dp))
                     Text(
                         entry.title,
-                        color = Color.White,
+                        color = AboutTextPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.height(5.dp))
                     Text(
                         entry.body,
-                        color = Color.White.copy(alpha = 0.78f),
+                        color = AboutTextSecondary,
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                     )
@@ -208,13 +225,13 @@ private fun InfoRow(label: String, value: String) {
     ) {
         Text(
             label,
-            color = Color.White.copy(alpha = 0.6f),
+            color = AboutTextLabel,
             fontSize = 14.sp,
             modifier = Modifier.weight(1f),
         )
         Text(
             value,
-            color = Color.White,
+            color = AboutTextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
         )
