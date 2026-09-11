@@ -43,6 +43,10 @@ import com.guixing.glasstuning.liveGlassParamsFor
 import com.guixing.glasstuning.tunedGlass
 import com.guixing.glassui.GlassBackgroundEditor
 import com.guixing.glassui.GlassBackgroundLayer
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import com.guixing.glassui.glassForegroundOn
+import com.guixing.glassui.SyncStatusBarToForeground
 import com.guixing.glassui.launcherBackgroundFlow
 import com.guixing.glassui.updateLauncherBackground
 import com.guixing.ui.style.AppTheme
@@ -80,6 +84,19 @@ private fun AppearanceScreen(onBack: () -> Unit, onOpenGlassTuning: () -> Unit) 
     val backdrop = rememberLayerBackdrop()
     val launcherBg by launcherBackgroundFlow.collectAsState()
 
+    // 这一屏编辑的就是启动页那份可配背景，而且自己也用它当背景，所以文字颜色必须跟着算，
+    // 不能用 Material 主题的 onXxx。算法收在 glassForegroundOn()，全项目共用一份，
+    // 见 docs/PITFALLS.md「猜表面颜色」。共用的 GlassBackgroundEditor 也读这个 LocalContentColor。
+    val panelParams = liveGlassParamsFor(GlassTarget.SettingsPanel)
+    val fg = launcherBg.glassForegroundOn(
+        tintEnabled = panelParams.tint.enabled,
+        tintColorArgb = panelParams.tint.colorArgb,
+        tintAlpha = panelParams.tint.alpha,
+    )
+
+    SyncStatusBarToForeground(fg)
+
+    CompositionLocalProvider(LocalContentColor provides fg) {
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = ScaffoldDefaults.contentWindowInsets,
@@ -91,7 +108,15 @@ private fun AppearanceScreen(onBack: () -> Unit, onOpenGlassTuning: () -> Unit) 
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                // ⚠️ Material3 的 xxxDefaults.colors() **不继承 LocalContentColor**：没显式给的
+                // 颜色槽一律从 MaterialTheme 取（onSurface 等），会盖掉外层 provide 的前景色。
+                // 可配背景的屏幕上，凡是带 colors= 的 M3 组件都得把文字/图标槽一起给。
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = fg,
+                    navigationIconContentColor = fg,
+                    actionIconContentColor = fg,
+                ),
             )
         },
     ) { padding ->
@@ -120,7 +145,14 @@ private fun AppearanceScreen(onBack: () -> Unit, onOpenGlassTuning: () -> Unit) 
                     trailingContent = {
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                     },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    // 同上：ListItem 的文字/图标槽也不继承 LocalContentColor，必须显式给。
+                    colors = ListItemDefaults.colors(
+                        containerColor = Color.Transparent,
+                        headlineColor = fg,
+                        supportingColor = fg.copy(alpha = 0.72f),
+                        leadingIconColor = fg,
+                        trailingIconColor = fg.copy(alpha = 0.72f),
+                    ),
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
                         .tunedGlass(
@@ -150,4 +182,5 @@ private fun AppearanceScreen(onBack: () -> Unit, onOpenGlassTuning: () -> Unit) 
             }
         }
     }
+    } // CompositionLocalProvider(LocalContentColor)
 }

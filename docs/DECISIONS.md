@@ -397,3 +397,64 @@ app 规则和全局规则**同时**清空，一处堵死全部。
 **自排除是不变量，不该是可配置项**，以后再改包名也不会重犯。
 ⚠️ **这条不解决 2026-09-06 那次误点的症状**——点它的是另外装的上游原版 GKD，不是癸星自己的内核。
 它堵的是"哪天启用癸星自己的无障碍服务"这个潜在坑。
+
+## 2026-09-10　包名统一为 com.guixing，推翻"applicationId 不变"
+
+`namespace` 和 `applicationId` 都从 `li.songe.gkd` / `li.songe.gkd.taiclear` 改成 **`com.guixing`**，
+Kotlin 源码目录 `li/songe/gkd` → `com/guixing`（297 个文件）。
+
+**推翻了什么**：本文件 2026-08-20 那条明确写着"applicationId 不变，用户手机原地升级不丢数据"。
+这次主动放弃那个好处，用户已知情并同意——代价是系统把它当成全新应用：桌面多一个图标、
+旧版不会被覆盖、所有权限（无障碍/Shizuku/悬浮窗/模拟定位/来电筛选）全部重新授权，
+而且 `getExternalFilesDir` 的数据目录跟着 applicationId 走，**改名前的提词器文稿、订阅、
+`gkd.db`、玻璃预设、快照全部留在旧目录里，新应用看不见**（数据还在，只能靠导入功能拿回来）。
+所以流程上必须是：先用应用自带导出功能备份 → 装新包 → 导入 → 确认无误后才卸载旧包。
+
+**为什么不选"只改 namespace、保留 applicationId"**：那样代码层面干净，且能原地升级零数据丢失，
+但 `li.songe` 会继续出现在最显眼的地方——系统「应用信息」、`adb` 命令、`/Android/data/` 目录名。
+与"彻底去掉原作者痕迹"的目标直接冲突，所以接受一次性的迁移成本。
+
+**为什么 `selector/` 模块不改**（仍是 `li.songe.selector`）：它是自成一体的选择器 DSL，
+还带 JS 编译目标，是最可能继续合并上游改动的模块；改它对用户零收益，却会放大以后的合并冲突面。
+先只改 app 模块，也让高风险部分（applicationId / 无障碍 / Shizuku）能单独验证。
+
+**三处绝对不能跟着改的**（一次盲目的 `li.songe` 全局替换会同时踩中全部三个）：
+① `gradle/libs.versions.toml` 里 `li.songe.remap` / `li.songe.loc` / `li.songe:json5`
+是原作者发布在 Maven Central 的**第三方依赖**，坐标恰好同前缀，改了直接依赖解析失败；
+② `com.google.android.accessibility.selecttospeak.SelectToSpeakService` 是故意伪装的无障碍
+服务类名，改了服务在系统里的组件名失配、开关打不开，且不抛任何 Kotlin 异常；
+③ `hidden_api/` 下的 `android.*` / `com.android.*` 是框架桩类，必须逐字匹配框架。
+**因此替换锚点必须是 `li.songe.gkd` 而不是 `li.songe`**，范围限定在 `app/src/` 内。
+
+**同步脚本这轮是硬停的**：`sync-to-public.sh` 加了守卫，检测到公开版仍是 `li.songe.gkd` 就
+退出码 2 中止。原因不只是路径变了——它按同一相对路径逐字节 `cp`，源变目标没变的话会往公开版
+**新建一棵平行的 `com/guixing` 目录树**；且复制过去的文件写着 `package com.guixing`，
+在公开版根本编译不过。公开版改名为 `com.guixingkeji` 之后，这个脚本需要真正的改造：
+两边包目录不同，复制时得做路径映射并改写 package/import 行，不能再假设相对路径一致。
+
+## 2026-09-11　公开版也改包名，但两边**源码包名故意保持一致**
+
+公开版 applicationId 从 `li.songe.gkd.guiyue` 改成 **`com.guixingkeji`**，源码目录同样从
+`li/songe/gkd` 移到 `com/guixing`（97 个文件）。
+
+**关键决定：两边的 `namespace`（源码包名）都是 `com.guixing`，只有 applicationId 不同。**
+
+**为什么不让公开版用 `com.guixingkeji` 做源码包名**（那是最初的设想）：
+`sync-to-public.sh` 的全部价值建立在"共用代码逐字节相同"之上——它按相对路径 `cp`，并用
+`cmp -s` 做一致性检查。两边源码包名一旦不同，这两件事同时失效：复制时得改写每个文件的
+package/import 行，`--check` 也得改成"忽略包名后再比对"。复杂度和出错面都明显上升，
+而换来的收益是零——两个应用从不共存于同一进程，源码包名相同不会有任何冲突。
+AGP 本来就允许 namespace 和 applicationId 不同，用户在手机上看到的身份由 applicationId 决定。
+
+**代价**：解包 APK 能看到公开版的类在 `com.guixing` 包下。可以接受——应用名、图标、
+applicationId 都是"癸星科技"，包名不是用户可见的身份标识。
+
+**防回归**：`sync-to-public.sh` 开头加了前置检查，两边 `app/src/main/kotlin/com/guixing`
+只要有一边不存在就以退出码 2 中止，并在报错里说明"要让两边包名不同就不能再用逐字节 cp"。
+2026-09-10 到 09-11 之间两边包名短暂不一致时，这个位置上是另一版硬停守卫——它防的是同一件事：
+脚本按同一相对路径 cp，源变目标没变，会往公开版**新建一棵平行目录树**而不是更新原文件。
+
+**验证**：公开版编译通过；合并清单 `package="com.guixingkeji.debug"`、
+authority 跟随 `${applicationId}`；APK 里 `li/songe/gkd` 0 命中；
+配色修复同步过去后再次编译通过，`sync-to-public.sh --check` 报告两边共用代码完全一致。
+**尚未做真机验收。**

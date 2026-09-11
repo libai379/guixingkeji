@@ -80,6 +80,10 @@ import com.guixing.glassui.LiquidDialog
 import com.guixing.glasstuning.GlassTarget
 import com.guixing.glasstuning.GlassTuningActivity
 import com.guixing.glasstuning.TeleprompterLibraryGlassTargets
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import com.guixing.glassui.glassForegroundOn
+import com.guixing.glassui.SyncStatusBarToForeground
 import com.guixing.glasstuning.liveGlassParamsFor
 import com.guixing.glasstuning.tunedGlass
 import com.guixing.util.LogUtils
@@ -145,12 +149,27 @@ fun TeleprompterLibraryScreen(
     // screen in this module (circular-capture crashes RenderThread otherwise).
     val backdrop = rememberLayerBackdrop()
 
+    // 这一屏的文字压在**用户可配的背景**上（默认/纯色/渐变/图片四种模式全可调），不能用 Material
+    // 主题的 onXxx——那套只知道系统深浅色，不知道用户把背景设成了什么。算法收在 glassForegroundOn()，
+    // 全项目共用一份（这个坑摔过三次，见 docs/PITFALLS.md「猜表面颜色」）。
+    // 本屏所有玻璃面都用同一个 GlassTarget.TeleprompterLibrary，所以一个前景色能覆盖顶栏/卡片/面板。
+    val libraryGlassParams = liveGlassParamsFor(GlassTarget.TeleprompterLibrary)
+    val fg = library.libraryBackground.glassForegroundOn(
+        tintEnabled = libraryGlassParams.tint.enabled,
+        tintColorArgb = libraryGlassParams.tint.colorArgb,
+        tintAlpha = libraryGlassParams.tint.alpha,
+    )
+
+    SyncStatusBarToForeground(fg)
+
+    // 往下提供一次：没有显式指定颜色的 Text/Icon 自动跟随，共用的 GlassBackgroundEditor 也读它。
+    CompositionLocalProvider(LocalContentColor provides fg) {
     Box(Modifier.fillMaxSize()) {
         GlassBackgroundLayer(library.libraryBackground, backdrop, Modifier.fillMaxSize())
 
         if (library.documents.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("点右下角新建一篇提词稿", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("点右下角新建一篇提词稿", color = fg.copy(alpha = 0.72f))
             }
         } else {
             LazyColumn(
@@ -393,7 +412,7 @@ fun TeleprompterLibraryScreen(
             target = GlassTarget.TeleprompterLibrary,
         )
     }
-
+    } // CompositionLocalProvider(LocalContentColor) —— 覆盖到这里，弹窗/对话框也一起跟随前景色
 }
 
 @Composable
@@ -452,7 +471,9 @@ private fun DocumentRow(
                 Text(
                     "${doc.chapters.size} 章节",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 跟随本屏前景色（由 TeleprompterLibraryScreen 按背景算好后 provide 下来）。
+                    // 文稿标题不写 color，自动继承 LocalContentColor。
+                    color = LocalContentColor.current.copy(alpha = 0.72f),
                 )
             }
         }

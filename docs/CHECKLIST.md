@@ -136,8 +136,8 @@
 > 照着上面第 0~6 节测就够了。这几条放在这里是因为"两个版本同时装"有它自己的失败模式,而且
 > 只有自己开发时会遇到。
 
-前提:两个版本的 `applicationId` 不同(`li.songe.gkd.taiclear` vs `li.songe.gkd.guiyue`),
-所以系统当成两个独立应用。
+前提:两个版本的 `applicationId` 不同(`com.guixing` vs `li.songe.gkd.guiyue`,后者待改
+`com.guixingkeji`),所以系统当成两个独立应用。
 
 - [ ] 先装一个,再装另一个,**第二个不报安装冲突**
       (最常见的失败是 `INSTALL_FAILED_CONFLICTING_PROVIDER`——两个应用声明了同名的

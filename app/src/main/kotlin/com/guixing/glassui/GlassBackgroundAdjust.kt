@@ -143,3 +143,75 @@ fun Color.compositeOver(base: Color, alpha: Float): Color {
  *  [prefersLightForeground]：RGB 均值会在绿色/蓝色上判断错。 */
 fun Color.prefersLightForegroundOnTop(): Boolean =
     (0.299f * red + 0.587f * green + 0.114f * blue) < 0.5f
+
+/** 深色前景基色。不用纯黑：纯黑压在白色玻璃面上过硬，这个近黑带一点冷调，跟金色标题也更协调。
+ *  启动页卡片、关于浮层、提词器文档库、电话拦截、外观设置共用这一份。 */
+val GLASS_DARK_FOREGROUND = Color(0xFF14121A)
+
+/**
+ * 一块玻璃表面最终看起来的实色。
+ *
+ * [tintColorArgb]/[tintAlpha] 是这块玻璃的 tint 参数（`tintEnabled=false` 表示没有 tint、
+ * 玻璃直接透出背后的东西）；[scrimAlpha] 是这块玻璃**底下**额外压着的黑色遮罩不透明度
+ * （浮层类面板才有，普通卡片传 0）。
+ *
+ * 图片模式判断不了背景亮度（[approximateBackgroundColor] 返回 null），退回深色基底
+ * [GLASS_BG_BASE]，跟 [prefersLightForeground] 对图片模式的处理保持一致，不各写一套。
+ */
+fun glassSurfaceColorOver(
+    base: Color,
+    tintEnabled: Boolean,
+    tintColorArgb: Long,
+    tintAlpha: Float,
+    scrimAlpha: Float = 0f,
+): Color {
+    val scrimmed = if (scrimAlpha > 0f) Color.Black.compositeOver(base, scrimAlpha) else base
+    return if (tintEnabled) {
+        Color(tintColorArgb.toInt()).compositeOver(scrimmed, tintAlpha)
+    } else {
+        scrimmed
+    }
+}
+
+/** [glassSurfaceColorOver] 的便捷重载：从背景配置推近似实色。 */
+fun GlassBackgroundConfig.glassSurfaceColor(
+    tintEnabled: Boolean,
+    tintColorArgb: Long,
+    tintAlpha: Float,
+    scrimAlpha: Float = 0f,
+): Color = glassSurfaceColorOver(
+    approximateBackgroundColor() ?: GLASS_BG_BASE,
+    tintEnabled, tintColorArgb, tintAlpha, scrimAlpha,
+)
+
+/**
+ * 压在一块玻璃表面上的前景色（白 或 [GLASS_DARK_FOREGROUND]）。**本项目所有"文字压在可配背景上"
+ * 的地方都必须走这里，不要写死颜色，也不要用 MaterialTheme 的 onXxx。**
+ *
+ * 这个项目在同一个坑上摔过三次（详见 docs/PITFALLS.md「猜表面颜色」那条）：写死白字 → 浅背景下
+ * 消失；改成写死黑字 → 深背景下消失；跟着**页面背景**走 → 白卡片上写白字。三次的共同点是都在
+ * **猜**这块玻璃最终是什么颜色。唯一可靠的做法是按 [glassSurfaceColor] 真算一遍再判感知亮度，
+ * 因为背景四种模式和 tint 的开关/颜色/透明度全都是用户可调的，任何"底色固定"的前提都不成立。
+ */
+fun glassForegroundOver(
+    base: Color,
+    tintEnabled: Boolean,
+    tintColorArgb: Long,
+    tintAlpha: Float,
+    scrimAlpha: Float = 0f,
+): Color {
+    val surface = glassSurfaceColorOver(base, tintEnabled, tintColorArgb, tintAlpha, scrimAlpha)
+    return if (surface.prefersLightForegroundOnTop()) Color.White else GLASS_DARK_FOREGROUND
+}
+
+/** [glassForegroundOver] 的便捷重载：从背景配置推近似实色。调用方手里已经有近似实色时
+ *  （比如卡片组件只拿到 bgApproxColor 参数）直接用上面那个，不要为了凑参数把整份配置传下去。 */
+fun GlassBackgroundConfig.glassForegroundOn(
+    tintEnabled: Boolean,
+    tintColorArgb: Long,
+    tintAlpha: Float,
+    scrimAlpha: Float = 0f,
+): Color = glassForegroundOver(
+    approximateBackgroundColor() ?: GLASS_BG_BASE,
+    tintEnabled, tintColorArgb, tintAlpha, scrimAlpha,
+)

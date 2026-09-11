@@ -103,6 +103,7 @@ import kotlin.math.roundToInt
 import com.kashif_e.backdrop.backdrops.layerBackdrop
 import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
 import com.guixing.glassui.LiquidCompactButton
+import com.guixing.glassui.glassContentColorOn
 import com.guixing.glassui.LiquidCompactIconButton
 import com.guixing.glassui.LiquidSlider
 import com.guixing.glasstuning.GlassTarget
@@ -396,6 +397,11 @@ fun TeleprompterPlayerScreen(
 
     val bgColor = Color(settings.backgroundColorArgb.toInt())
     val textColor = Color(settings.textColorArgb.toInt())
+    // 正文用 textColor（压在页面底色 bgColor 上），但顶栏/设置列/底部控制条是三块 tunedGlass 面，
+    // 它们上面的图标文字必须跟**玻璃自己的表面色**走，不能用 textColor：黑底白字的配色下，
+    // 玻璃却是浅色的，白图标压浅色玻璃就看不见了（2026-09-10 真机复现）。
+    // 这两个颜色是两回事，见 glassContentColorOn 的注释。
+    val playerGlassFg = glassContentColorOn(bgColor, GlassTarget.TeleprompterPlayer)
     // playerZoom (pinch) multiplies the actual font size fed into the layout (reflow), not a
     // canvas scale - a graphicsLayer scale doesn't rewrap text, it just visually stretches the
     // block, which ran zoomed-in text off the edge of the screen instead of wrapping it.
@@ -600,7 +606,7 @@ fun TeleprompterPlayerScreen(
                 ),
             ) {
                 LiquidCompactIconButton(onClick = onClose, backdrop = contentBackdrop, sampleBackdrop = false, inactiveTint = Color.Transparent) {
-                    Icon(Icons.Filled.Close, contentDescription = "退出播放")
+                    Icon(Icons.Filled.Close, contentDescription = "退出播放", tint = playerGlassFg)
                 }
                 LiquidCompactIconButton(
                     onClick = {
@@ -612,7 +618,7 @@ fun TeleprompterPlayerScreen(
                     sampleBackdrop = false,
                     inactiveTint = Color.Transparent,
                 ) {
-                    Icon(Icons.Filled.Flip, contentDescription = "镜像翻转")
+                    Icon(Icons.Filled.Flip, contentDescription = "镜像翻转", tint = playerGlassFg)
                 }
                 LiquidCompactIconButton(
                     onClick = { orientationMenuExpanded = true; registerInteraction() },
@@ -620,7 +626,7 @@ fun TeleprompterPlayerScreen(
                     sampleBackdrop = false,
                     inactiveTint = Color.Transparent,
                 ) {
-                    Icon(Icons.Filled.Settings, contentDescription = "屏幕方向")
+                    Icon(Icons.Filled.Settings, contentDescription = "屏幕方向", tint = playerGlassFg)
                 }
             }
         }
@@ -665,12 +671,12 @@ fun TeleprompterPlayerScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     ) {
                         if (doc.orientation == option) {
-                            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp), tint = playerGlassFg)
                         } else {
                             Spacer(Modifier.size(18.dp))
                         }
                         Spacer(Modifier.width(8.dp))
-                        Text(orientationLabel(option), modifier = Modifier.weight(1f))
+                        Text(orientationLabel(option), modifier = Modifier.weight(1f), color = playerGlassFg)
                     }
                 }
                 LiquidCompactButton(
@@ -684,9 +690,9 @@ fun TeleprompterPlayerScreen(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
-                    Icon(Icons.Filled.HelpOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.HelpOutline, contentDescription = null, modifier = Modifier.size(18.dp), tint = playerGlassFg)
                     Spacer(Modifier.width(8.dp))
-                    Text("再看一次操作说明", modifier = Modifier.weight(1f))
+                    Text("再看一次操作说明", modifier = Modifier.weight(1f), color = playerGlassFg)
                 }
             }
         }
@@ -722,7 +728,9 @@ fun TeleprompterPlayerScreen(
                     Icon(
                         if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (isPlaying) "暂停" else "播放",
-                        tint = textColor,
+                        // 这条控制条是玻璃面，不能用 textColor（那是正文压在页面底色上的颜色）。
+                        // 黑底白字的配色下玻璃却是浅色的，白图标压浅灰条就看不见了。
+                        tint = playerGlassFg,
                     )
                 }
                 // Was +/- stepper buttons - "直播时太费劲", replaced with a slider matching
@@ -734,7 +742,8 @@ fun TeleprompterPlayerScreen(
                     modifier = Modifier.width(48.dp),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelLarge,
-                    color = textColor,
+                    // 同上：跟玻璃表面走，不跟正文走。
+                    color = playerGlassFg,
                 )
                 LiquidSlider(
                     value = { speed },
@@ -758,6 +767,7 @@ fun TeleprompterPlayerScreen(
             onJump = { chapterId -> jumpToChapter(chapterId) },
             showTrigger = false,
             target = GlassTarget.TeleprompterPlayer,
+            surfaceBase = bgColor,
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
         )
 
@@ -779,7 +789,9 @@ fun TeleprompterPlayerScreen(
                 onOpenFull = { outlineExpanded = true },
                 onJumpToIndex = { index -> doc.chapters.getOrNull(index)?.let { jumpToChapter(it.id) } },
                 dimAlpha = triggerAlpha,
-                textColor = textColor,
+                // 传**页面底色**而不是页面文字色：这个手柄是一块玻璃，它的图标该跟玻璃自己的
+                // 表面色走。以前传 textColor（黑底→白字）导致白图标压在浅色玻璃盘上看不见。
+                surfaceBase = bgColor,
                 onInteraction = { registerInteraction() },
                 target = GlassTarget.TeleprompterPlayer,
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),

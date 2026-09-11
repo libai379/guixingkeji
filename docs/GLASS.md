@@ -81,7 +81,7 @@ fork 和官方 2.0.0 逐字节相同，从 KMP 重写以来没被碰过）用
 `patchedLens(...)`，保证项目里没有绕开补丁的 `chromaticAberration=true` 调用点。核对方式：
 
 ```
-grep -rn "\.lens(" app/src/main/kotlin/li/songe/gkd
+grep -rn "\.lens(" app/src/main/kotlin/com/guixing
 ```
 
 应该只有 `PatchedLens.kt` 自己 import 了库原始的 `lens()`（用于非色散委托）。
@@ -119,7 +119,7 @@ UI）只需要改一处，四个入口自动同步**——这是 2026-08-16 从"
 各传各的。
 
 参数按作用对象（`GlassTarget`）分别存，存储在
-`li.songe.gkd.store.createAnyFlow(key="glass_tuning", ...)`（JSON 文件，防抖写入），实现在
+`com.guixing.store.createAnyFlow(key="glass_tuning", ...)`（JSON 文件，防抖写入），实现在
 `glasstuning/GlassTuningStore.kt`。预设存储（`GlassPresetStore.kt`）是**一份不分入口的扁平列表**
 ——`allPresetsFor(store, targets)` 靠 `paramsByTarget.keys == targets.map{it.name}.toSet()`
 精确匹配来过滤，不会把编辑页存的预设显示在播放页的预设列表里（每个预设的 key 集合天生就是它保存

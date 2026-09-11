@@ -19,13 +19,20 @@ git diff --diff-filter=A --name-only $BASE HEAD   # 新增的（不会冲突）
 
 截至 2026-08-20：**新增 85 个文件，只修改了 7 个**——"只加不改"这条准则守住了。
 
+> ⚠️ **2026-09-10 起这张表不再是全貌。** 包名改成 `com.guixing` 之后，`app/` 下**每一个**上游
+> Kotlin 文件的 `package`/`import` 行都变了，目录也从 `li/songe/gkd` 移到了 `com/guixing`
+> （297 个文件）。上面这张表记的是"改了业务逻辑"的 7 个文件，仍然有效；但合并上游时**每个文件
+> 都会有路径和包名冲突**，不再只有 7 个冲突点。合并策略也随之变化：先把上游改动落到旧路径，
+> 再整体做一次同样的 `li.songe.gkd -> com.guixing` 替换，比逐文件手工解冲突省事得多。
+> `selector/` 模块**没有改包名**（仍是 `li.songe.selector`），那边合并上游不受影响。
+
 | 上游文件 | 改了什么 | 同步上游时怎么处理 |
 |---|---|---|
-| `app/build.gradle.kts` | `applicationId` 改 `li.songe.gkd.taiclear`；加了 backdrop（液态玻璃）、richeditor（富文本）、colorpicker 三个依赖 | 保留我们的 applicationId 和依赖，其余接受上游 |
+| `app/build.gradle.kts` | `namespace` 和 `applicationId` 都改 `com.guixing`；加了 backdrop（液态玻璃）、richeditor（富文本）、colorpicker 三个依赖 | 保留我们的 namespace/applicationId 和依赖，其余接受上游 |
 | `gradle/libs.versions.toml` | 加 `richeditorCompose`、`colorpickerCompose` 两条版本声明 | 保留这两行，其余接受上游 |
 | `app/src/main/AndroidManifest.xml` | +79 行：新功能的 Activity/Service 声明、相关权限 | 保留我们新增的块，上游改动照收 |
 | `app/src/main/res/values/strings.xml` | `app_name` 改 `癸月`，并**去掉了 `debug_suffix="true"`** | 保留（去掉那个属性是有意的，见下） |
-| `app/src/main/kotlin/li/songe/gkd/util/FolderExt.kt` | +9 行：加了 `teleprompterBgFolder` | 保留这一段 |
+| `app/src/main/kotlin/com/guixing/util/FolderExt.kt` | +9 行：加了 `teleprompterBgFolder` | 保留这一段 |
 | `.gitignore` | +6 行 | 合并即可 |
 | `app/src/androidTest/.../ExampleInstrumentedTest.kt` | 包名断言跟着 applicationId 改 | 保留 |
 

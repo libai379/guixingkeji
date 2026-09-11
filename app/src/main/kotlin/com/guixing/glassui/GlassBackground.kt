@@ -35,6 +35,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
+import androidx.activity.compose.LocalActivity
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,6 +76,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import com.guixing.glasstuning.GlassTarget
+import com.guixing.glasstuning.liveGlassParamsFor
 import com.guixing.store.createAnyFlow
 import com.guixing.teleprompter.TeleprompterColorPickerPopup
 import com.guixing.util.LogUtils
@@ -381,26 +386,30 @@ fun GlassBackgroundEditor(
             GlassBgMode.Default -> Text(
                 defaultDescription,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = LocalContentColor.current.copy(alpha = 0.72f),
             )
 
             GlassBgMode.Solid -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                // 2026-08-16 - 之前色块纯色块没有描边，当前颜色一旦接近面板自己的玻璃底色就跟
-                // 背景融在一起分不清是个可点的东西。加一圈白色描边，不管选的是什么颜色都独立于
-                // 背景之外，始终看得出这是个色块。
+                // 2026-08-16 - 之前色块没有描边，当前颜色一旦接近面板自己的玻璃底色，就跟背景融
+                // 在一起、分不清是个可点的东西，所以加了一圈描边。
+                //
+                // 2026-09-10 - 描边原本写死白色。用户把背景调成白色后，白圈套白底压在白面板上整个
+                // 消失，效果跟当初没有描边完全一样。改成跟着 LocalContentColor 走：面板深就用浅色
+                // 描边、面板浅就用深色描边，跟这一屏的文字同进退（用户原话："那个圈能不能跟字一样，
+                // 可以跟背景一起动"）。这是「猜表面颜色」那个坑的又一个变体——描边也是"前景"。
                 Box(
                     Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(Color(current.solidColorArgb.toInt()))
-                        .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                        .border(2.dp, LocalContentColor.current.copy(alpha = 0.85f), CircleShape)
                         .clickable { solidPickerOpen = true },
                 )
                 Text("点色块选颜色", style = MaterialTheme.typography.bodyMedium)
             }
 
             GlassBgMode.Gradient -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("预设", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("预设", style = MaterialTheme.typography.labelMedium, color = LocalContentColor.current.copy(alpha = 0.72f))
                 GlassGradientPresets.forEach { preset ->
                     val selected = current.gradientColorsArgb == preset.colors && current.gradientAngleDeg == preset.angleDeg
                     Box(
@@ -422,20 +431,21 @@ fun GlassBackgroundEditor(
                     )
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("自定义", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("自定义", style = MaterialTheme.typography.labelMedium, color = LocalContentColor.current.copy(alpha = 0.72f))
                 val colorA = current.gradientColorsArgb.getOrNull(0)?.let { Color(it.toInt()) } ?: Color(0xFF8B7CFF)
                 val colorB = current.gradientColorsArgb.getOrNull(1)?.let { Color(it.toInt()) } ?: Color(0xFF3CE8D8)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // 同下面纯色色块一样加白色描边，避免颜色跟面板背景融在一起。
+                    // 同下面纯色色块一样加描边，避免颜色跟面板背景融在一起。描边颜色跟着前景色走，
+                    // 不能写死——写死白色时，用户把背景调成浅色，白圈套白底就整个消失了。
                     Box(
                         Modifier.size(36.dp).clip(CircleShape).background(colorA)
-                            .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                            .border(2.dp, LocalContentColor.current.copy(alpha = 0.85f), CircleShape)
                             .clickable { gradientPickerTarget = 0 },
                     )
                     Text("→", style = MaterialTheme.typography.bodyMedium)
                     Box(
                         Modifier.size(36.dp).clip(CircleShape).background(colorB)
-                            .border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                            .border(2.dp, LocalContentColor.current.copy(alpha = 0.85f), CircleShape)
                             .clickable { gradientPickerTarget = 1 },
                     )
                 }
@@ -473,7 +483,6 @@ fun GlassBackgroundEditor(
 
             }
         }
-    }
 
 
         // 2026-08-28 - 这五个调节从"只有图片模式有"提升为**纯色/渐变/图片三种模式共用**。
@@ -525,6 +534,9 @@ fun GlassBackgroundEditor(
                 )
             }
         }
+    } // Column(modifier) —— 2026-09-10：这个括号原本错在上面，把五个调节滑块
+      // 漏在了 Column 外面，导致它们拿不到调用方给的内边距，且在弹窗里被 weight(1f)
+      // 挤到面板最底下还被裁掉。外观设置那屏是滚动布局没有 weight，所以看不出来。
 
     if (solidPickerOpen) {
         TeleprompterColorPickerPopup(
@@ -571,4 +583,53 @@ fun GlassBackgroundEditor(
             },
         )
     }
+}
+
+/**
+ * 让系统状态栏图标跟着**这一屏自己的前景色**走。
+ *
+ * `AppTheme`（ui/style/Theme.kt）按 **Material 主题**的深浅设 `isAppearanceLightStatusBars`，
+ * 但用了可配背景的这几屏（启动页 / 提词器文档库 / 电话拦截 / 外观设置）画在状态栏底下的是**用户
+ * 自选的颜色**，跟系统深浅色没有关系：系统处于浅色模式、用户又把背景设成纯黑时，状态栏就是深色
+ * 图标压在黑底上，时间和信号格几乎看不见（2026-09-10 真机确认）。
+ *
+ * 所以这几屏必须在 AppTheme 之后再按自己算出来的前景色覆盖一次。这是「猜表面颜色」那个坑
+ * （docs/PITFALLS.md）在系统栏上的同一个变体——状态栏也是压在可配背景上的"前景"。
+ */
+@Composable
+fun SyncStatusBarToForeground(fg: Color) {
+    val activity = LocalActivity.current ?: return
+    LaunchedEffect(fg) {
+        WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+            .isAppearanceLightStatusBars = fg != Color.White
+    }
+}
+
+/**
+ * 一块 `tunedGlass` 表面上该用的内容颜色（文字/图标/描边）。
+ *
+ * [base] 传这块玻璃**背后那层**的实色——通常是页面背景色（`MaterialTheme.colorScheme.background`
+ * 或用户自配的背景近似色）。玻璃自己的 tint 会叠在它上面，算出真实表面色再判感知亮度。
+ *
+ * **为什么必须按"每块玻璃"算，而不是整屏统一**：同一屏里正文压在**页面背景**上、顶栏文字压在
+ * **玻璃面**上，两者的底色可以差到一黑一白。整屏 provide 一个颜色，必然有一边翻车——
+ * 2026-09-10 编辑页就是这样：用户把 TeleprompterEditor 的 tint 调成不透明纯黑，顶栏变成黑块、
+ * 里面的标题和按钮全看不见，而正文所在的页面背景仍是浅色。
+ *
+ * 用法：
+ * ```
+ * CompositionLocalProvider(
+ *     LocalContentColor provides glassContentColorOn(MaterialTheme.colorScheme.background, target)
+ * ) { /* 这块玻璃里的内容 */ }
+ * ```
+ */
+@Composable
+fun glassContentColorOn(base: Color, target: GlassTarget): Color {
+    val p = liveGlassParamsFor(target)
+    return glassForegroundOver(
+        base = base,
+        tintEnabled = p.tint.enabled,
+        tintColorArgb = p.tint.colorArgb,
+        tintAlpha = p.tint.alpha,
+    )
 }

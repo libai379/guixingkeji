@@ -105,6 +105,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.runtime.CompositionLocalProvider
+import com.guixing.glassui.glassContentColorOn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
@@ -604,6 +606,16 @@ fun TeleprompterEditorScreen(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 顶栏是一块 tunedGlass 面：它的文字/图标必须跟着**这块玻璃自己的表面色**走，
+            // 不能继承主题色。用户把 TeleprompterEditor 的 tint 调成不透明纯黑之后，顶栏是黑块，
+            // 而主题给的是深色文字 → 标题和「编辑」按钮全看不见（2026-09-10 真机复现）。
+            // 注意只能包这块玻璃里的内容：正文压在页面背景上，跟顶栏底色可以一黑一白。
+            CompositionLocalProvider(
+                LocalContentColor provides glassContentColorOn(
+                    MaterialTheme.colorScheme.background,
+                    GlassTarget.TeleprompterEditor,
+                ),
+            ) {
             if (titleEditing) {
                 val focusRequester = remember { FocusRequester() }
                 OutlinedTextField(
@@ -674,6 +686,7 @@ fun TeleprompterEditorScreen(
             }
             LiquidCompactIconButton(onClick = onOpenLibrary, backdrop = editorBackdrop, sampleBackdrop = false, inactiveTint = Color.Transparent) {
                 Icon(Icons.Filled.LibraryBooks, contentDescription = "文档库")
+            }
             }
         }
 
@@ -1115,6 +1128,14 @@ private fun EditorFormatToolbar(
     disabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    // 这条工具栏整个压在自己的 tunedGlass 面上，内容颜色跟着这块玻璃的表面色走，不能继承
+    // 主题色（用户可以把 TeleprompterEditor 的 tint 调成不透明纯黑）。见 glassContentColorOn。
+    CompositionLocalProvider(
+        LocalContentColor provides glassContentColorOn(
+            MaterialTheme.colorScheme.background,
+            GlassTarget.TeleprompterEditor,
+        ),
+    ) {
     var tab by remember { mutableStateOf(FormatTab.Character) }
     Box(
         modifier = modifier
@@ -1197,6 +1218,7 @@ private fun EditorFormatToolbar(
                 }
             }
         }
+    }
     }
 }
 
@@ -1514,7 +1536,12 @@ internal fun BoxScope.OutlineScrubTrigger(
     target: GlassTarget,
     modifier: Modifier = Modifier,
     dimAlpha: Float = 1f,
-    textColor: Color = Color.Unspecified,
+    // 这块玻璃**背后那层**的实色，用来算它自己的表面色。默认取主题背景（编辑页就是它）；
+    // 播放页的页面底色是用户在设置里自选的（settings.backgroundColorArgb），必须显式传进来。
+    // ⚠️ 这里以前是 `textColor`，播放页把**页面文字色**传了进来——那是给正文用的（黑底→白字），
+    // 而这块玻璃的表面是浅色的，于是白图标压白圆盘、整个手柄看不见（2026-09-10 真机复现）。
+    // 页面上的前景色和玻璃面上的前景色是两回事，不能互相顶替。
+    surfaceBase: Color = Color.Unspecified,
     onInteraction: () -> Unit = {},
 ) {
     if (chapters.isEmpty()) return
@@ -1532,7 +1559,14 @@ internal fun BoxScope.OutlineScrubTrigger(
     val rowHeightPx = with(density) { rowHeight.toPx() }
     val panelHeightPx = with(density) { panelHeight.toPx() }
     val centerOffsetPx = panelHeightPx / 2f - rowHeightPx / 2f
-    val resolvedTextColor = textColor.takeOrElse { LocalContentColor.current }
+    // 兜底色不能用 LocalContentColor——那是**页面背景**上的前景色，而这一整块内容压在下面那个
+    // tunedGlass 面上，玻璃的 tint 是用户可调的。用户把 TeleprompterEditor 调成不透明纯黑之后，
+    // 玻璃是黑的、LocalContentColor 仍是主题的深色，手柄就成了黑底黑内容（2026-09-10 真机复现）。
+    // 按这块玻璃自己的表面色算，见 glassContentColorOn 的注释。
+    val resolvedTextColor = glassContentColorOn(
+        surfaceBase.takeOrElse { MaterialTheme.colorScheme.background },
+        target,
+    )
 
     Box(
         modifier = modifier
@@ -1578,7 +1612,15 @@ internal fun BoxScope.OutlineScrubTrigger(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "大纲（长按拖动快速翻章）", modifier = Modifier.size(20.dp))
+        // tint 必须显式给：不给就继承主题的 LocalContentColor（那是**页面背景**上的前景色），
+        // 而这个图标压在上面那块 tunedGlass 面上。用户把 TeleprompterEditor 的 tint 调成不透明
+        // 纯黑之后，黑图标压黑玻璃，整个手柄就是一个纯黑的球（2026-09-10 真机复现）。
+        Icon(
+            Icons.AutoMirrored.Filled.List,
+            contentDescription = "大纲（长按拖动快速翻章）",
+            modifier = Modifier.size(20.dp),
+            tint = resolvedTextColor,
+        )
     }
 
     if (scrubbing) {
@@ -1650,7 +1692,16 @@ internal fun BoxScope.TeleprompterOutlinePanel(
     // composable can't hardcode either one; each caller passes its own.
     target: GlassTarget,
     modifier: Modifier = Modifier,
+    /** 见 [OutlineScrubTrigger] 同名参数：这块玻璃背后那层的实色。 */
+    surfaceBase: Color = Color.Unspecified,
 ) {
+    // 抽屉整个压在自己的 tunedGlass 面上，内容颜色按这块玻璃的表面色算，不能继承主题色。
+    // 这里没有整体 CompositionLocalProvider 包起来，是因为本函数是 BoxScope 扩展，包进
+    // 非 inline 的 provider 之后 .align() 这些 BoxScope 方法就没了；所以算成局部值逐处传。
+    val glassFg = glassContentColorOn(
+        surfaceBase.takeOrElse { MaterialTheme.colorScheme.background },
+        target,
+    )
     // Outside-tap-to-close scrim (2026-08-16, "除副标题大纲区域，其他任何区域再次点击可以关闭") -
     // transparent (no dimming was asked for, just tap capture), sits behind the drawer so it only
     // catches taps that land outside it; the drawer's own Box below swallows its own taps with a
@@ -1711,6 +1762,7 @@ internal fun BoxScope.TeleprompterOutlinePanel(
                 Text(
                     "大纲",
                     style = MaterialTheme.typography.titleSmall,
+                    color = glassFg,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
                 LazyColumn {
@@ -1721,6 +1773,7 @@ internal fun BoxScope.TeleprompterOutlinePanel(
                                 "${index + 1}. ${ch.subtitle.ifBlank { "(无副标题)" }}",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                color = glassFg,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
@@ -1747,7 +1800,7 @@ internal fun BoxScope.TeleprompterOutlinePanel(
     }
     if (!expanded && showTrigger) {
         SmallFloatingActionButton(onClick = { onExpandedChange(true) }, modifier = modifier) {
-            Icon(Icons.Filled.List, contentDescription = "大纲")
+            Icon(Icons.Filled.List, contentDescription = "大纲", tint = glassFg)
         }
     }
 }
@@ -1807,6 +1860,15 @@ private fun TeleprompterSettingsWindow(
     onBodyDragStart: () -> Unit = {},
     onBodyDragEnd: () -> Unit = {},
 ) {
+    // 这个面板整个压在自己的 tunedGlass 面上。当前 TeleprompterSettingsWindow 这个 target 的
+    // tint 默认是关的（玻璃透明、等于压在页面背景上），所以继承主题色暂时也对；但它同样是用户
+    // 可调的，一旦开启并调深就会重演编辑页顶栏那个"黑底黑字"。按表面色算，两种情况都对。
+    CompositionLocalProvider(
+        LocalContentColor provides glassContentColorOn(
+            MaterialTheme.colorScheme.background,
+            GlassTarget.TeleprompterSettingsWindow,
+        ),
+    ) {
     val entrance = remember { Animatable(0f) }
     LaunchedEffect(Unit) { entrance.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium)) }
 
@@ -2328,5 +2390,6 @@ private fun TeleprompterSettingsWindow(
             }
             }
         }
+    }
     }
 }

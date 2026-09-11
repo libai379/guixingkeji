@@ -51,8 +51,9 @@
 - 命中的是**订阅 667**（第三方，非默认订阅）「开屏广告-全局」rule key=0：
   `[text*="跳过"][text.length<10][width<500 && height<300][visibleToUser=true]`
 - 启动页「去广告」卡片副标题「自动跳过开屏广告」正好 8 字（<10）、含"跳过"、尺寸也在范围内。
-- 该组 374 条应用排除清单里有 `li.songe.gkd` 和 `li.songe.gkd.debug`，**唯独没有
-  `li.songe.gkd.taiclear.debug`**——改包名让上游写死包名的自排除失配了。
+- 该组 374 条应用排除清单里有 `li.songe.gkd` 和 `li.songe.gkd.debug`，**唯独没有癸星自己的
+  包名**（当时是 `li.songe.gkd.taiclear.debug`，2026-09-10 起是 `com.guixing.debug`）——
+  改包名让上游写死包名的自排除失配了；改成 com.guixing 之后依然失配，性质不变。
 - GKD 自己的触发记录坐实：癸星名下 22 次触发，其中 15 次 activity 就是 `LauncherActivity`。
 
 **已做**：给癸星自己的 `checkAppBlockMatch()` 加了"自排除"硬兜底（`appId == META.appId` 直接
@@ -100,11 +101,25 @@
 
 **已停止投入**：提词器正文滑块拖动卡顿——两轮修复后用户验收为"能用，不再深究"，不要再碰。
 
+## 待办
+
+- ~~公开版改包名~~ **已完成（2026-09-11）**：公开版 applicationId 改成 `com.guixingkeji`，
+  但**源码包名跟私人版一样是 `com.guixing`**——刻意的，这样共用代码仍逐字节相同，
+  `sync-to-public.sh` 不用改造成"复制时改写 package/import 行"。配色修复已同步过去并编译验证，
+  `--check` 通过。⚠️ 以后谁要动任何一边的 namespace，先看 `sync-to-public.sh` 开头的前置检查注释。
+- **公开版改名后没做真机验收**：只验证了编译、合并清单（`package="com.guixingkeji.debug"`、
+  authority 正确跟随）和 APK 符号（旧包名 0 命中）。三个功能在真机上都没点过。
+- **Shizuku 相关功能在改包名后尚未真机验证**：2026-09-10 验收时设备上 Shizuku 没运行，
+  AIDL 描述符（`com.guixing.shizuku.IUserService`）和 user service 绑定这条链路**没测到**。
+  下次 Shizuku 可用时补验一次。
+
 ## 已知但未修的问题
 
 - **手机上同时装着两个 GKD**：`li.songe.gkd`（上游原版，陈旧，不可调试，**无障碍服务是它在跑**）
-  和 `li.songe.gkd.taiclear.debug`（当前开发的癸星）。用户明确表示暂不处理。
-  **`adb` 命令里包名不能简写**，务必确认操作的是 `.taiclear.debug` 那个。
+  和 `com.guixing.debug`（当前开发的癸星，2026-09-10 前叫 `li.songe.gkd.taiclear.debug`）。
+  用户明确表示暂不处理。**`adb` 命令里包名不能简写**，务必确认操作的是 `com.guixing.debug`。
+  ⚠️ 改包名前装的那个 `li.songe.gkd.taiclear.debug` 不会被覆盖安装，会作为第三个应用留在机上，
+  它的数据目录里还存着改名前的提词器文稿/订阅/数据库——确认迁移完成前不要卸载它。
   上面那条误点 bug 就是这两个共存导致的。
 
 ## 环境
@@ -116,10 +131,13 @@ SDK        F:\android_sdk        adb  F:\android_sdk\platform-tools\adb.exe
 产物       app/build/outputs/apk/gkd/debug/app-gkd-debug.apk
 交付       cp 到 F:\apk-out\癸星.apk（私人版）/ 癸星科技.apk（公开版）
            文件名不带版本号、不带日期——版本在应用「关于」页里看
-真机       R5CY2195QED（三星 S25 Ultra），包名 li.songe.gkd.taiclear.debug
+真机       R5CY2195QED（三星 S25 Ultra），包名 com.guixing.debug
 ```
 
-⚠️ 这台机器的 USB 连接很不稳定，`adb devices` 经常掉成空列表；掉了就等用户重新连，
-不要反复 `kill-server` 空转。
+⚠️ **`adb` 默认是连不上的，这是正常状态，不是故障。** 用户平时要正常使用这台手机，所以**数据线
+是拔着的**。每次需要真机操作时，流程固定是：用户插线 → 手机弹「允许 USB 调试吗？」→ 用户点允许。
+因此 `adb devices` 显示空列表或 `unauthorized`，**唯一正确的反应是告诉用户"请插线并在手机上点允许"
+然后等**——不要反复 `kill-server`/`start-server` 空转，也不要写成"USB 连接不稳定/接触不良"去排查
+硬件，那是误判（2026-09-10 已纠正过一次）。`unauthorized` 尤其明确：线是通的，只差手机上点确认。
 
 两个工程的区别、同步规则见 `CLAUDE.md`（不在这里重复，重复必然漂移）。

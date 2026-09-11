@@ -64,6 +64,10 @@ import com.guixing.glassui.GlassBackgroundLayer
 import com.guixing.glassui.LiquidCompactButton
 import com.guixing.glassui.LiquidCompactIconButton
 import com.guixing.glassui.LiquidToggle
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import com.guixing.glassui.glassForegroundOn
+import com.guixing.glassui.SyncStatusBarToForeground
 import com.guixing.glassui.launcherBackgroundFlow
 import com.guixing.glasstuning.GlassTarget
 import com.guixing.glasstuning.liveGlassParamsFor
@@ -117,6 +121,19 @@ private fun CallGuardScreen(onBack: () -> Unit) {
     // 祖先捕获后代再被后代采样是循环引用，会让 RenderThread 原生栈溢出崩溃（本项目踩过）。
     val backdrop = rememberLayerBackdrop()
 
+    // 本屏背景复用启动页那份用户可配的 launcherBackgroundFlow，所以文字颜色不能用 Material 主题的
+    // onXxx（它只知道系统深浅色）。算法收在 glassForegroundOn()，全项目共用一份，见
+    // docs/PITFALLS.md「猜表面颜色」。本屏玻璃面统一用 GlassTarget.Other。
+    val otherGlassParams = liveGlassParamsFor(GlassTarget.Other)
+    val fg = launcherBg.glassForegroundOn(
+        tintEnabled = otherGlassParams.tint.enabled,
+        tintColorArgb = otherGlassParams.tint.colorArgb,
+        tintAlpha = otherGlassParams.tint.alpha,
+    )
+
+    SyncStatusBarToForeground(fg)
+
+    CompositionLocalProvider(LocalContentColor provides fg) {
     Box(Modifier.fillMaxSize()) {
         GlassBackgroundLayer(launcherBg, backdrop, Modifier.fillMaxSize())
 
@@ -137,7 +154,7 @@ private fun CallGuardScreen(onBack: () -> Unit) {
                     Text(
                         "还没有规则",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = LocalContentColor.current.copy(alpha = 0.72f),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
                     )
                 }
@@ -204,6 +221,7 @@ private fun CallGuardScreen(onBack: () -> Unit) {
             }
         }
     }
+    } // CompositionLocalProvider(LocalContentColor)
 }
 
 /** 卡片外壳：本屏所有分区共用一份配方，改一处三处一起变。 */
@@ -245,7 +263,7 @@ private fun EnableCard(store: CallGuardStore, backdrop: Backdrop) {
                 Text(
                     if (store.enabled) "已启用，按下面规则拦截" else "已关闭，所有来电正常响铃",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = LocalContentColor.current.copy(alpha = 0.72f),
                 )
             }
             LiquidToggle(
@@ -280,7 +298,7 @@ private fun ModeCard(store: CallGuardStore, backdrop: Backdrop) {
                             color = if (selected) {
                                 MaterialTheme.colorScheme.onPrimaryContainer
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                LocalContentColor.current.copy(alpha = 0.72f)
                             },
                         )
                     }
@@ -294,7 +312,7 @@ private fun ModeCard(store: CallGuardStore, backdrop: Backdrop) {
                         if (store.activePrefixes.isEmpty()) "当前规则为空 —— 为避免误拦，规则为空时一律放行。" else ""
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = LocalContentColor.current.copy(alpha = 0.72f),
                 modifier = Modifier.padding(top = 10.dp),
             )
         }
