@@ -7,35 +7,40 @@
 > ——那次膨胀直接造成过一次真实的排查弯路（详见 `PITFALLS.md`「必读文件过长本身是个 bug」）。
 > **写进来之前先问：这句话描述的是"现在的状态"，还是"当时发生的事"？后者不属于这里。**
 
-更新时间：2026-09-06。
+更新时间：2026-09-11。
 
 ## 下次开发第一件事
 
-**开发已告一段落**（用户 2026-09-06 明确"目前已开发结束，后续要加其他功能，目前不做"）。
-本轮代码已提交、已备份，工作区干净。接手时按这个顺序：
+**两个工程的包名重命名已全部完成并装机**，代码已提交、已备份，两边工作区干净。接手时按这个顺序：
 
 1. 读这份 + `CLAUDE.md`（两份加起来约 270 行，读得完）。要动代码再看 `ARCHITECTURE.md`。
 2. 要加新功能，先看 `ARCHITECTURE.md` 第七节那 10 条架构不变量。
 3. 改完照 `docs/CHECKLIST.md` 走真机验收——本项目没有 UI 自动化测试，这份清单是唯一的网。
 
-**当前没有已知未修的 bug，也没有半途而废的改动。** 下面几节是现状和长期欠账。
+**私人版没有已知未修的 bug。** 公开版只验了编译和清单，三个功能一次都没在真机上点过（见待办）。
 
-## 本轮改动（2026-09-05/06）—— ✅ 已装机，真机验收全部通过
+## 本轮改动（2026-09-10/11）—— 包名重命名 + 配色系统性修复
 
-三项功能改动，两版均编译通过、同步一致性检查通过、已装真机，
-**用户 2026-09-06 确认验收全部通过**：
+两个工程都改了包名，私人版七屏配色已真机验收，公开版只过了编译。
 
-1. **「关于」浮层文字改黑**（`LauncherAbout.kt`，两版各改一遍，该文件在 `NEVER_COPY` 里）。
-   顺带把 API<33 的降级分支从深色底改成浅色底——只改字不改底会变成黑字压深底。
-2. **提词器设置面板模糊度默认拉满**，标签改成按百分比显示。**关键**：光改数据类默认值对老用户
-   无效（`encodeDefaults = true`，旧的 0 已在磁盘上），真正生效靠新增的 schema v3 迁移
-   `migrateV3SettingsPanelBlurFull()`，只跑一次。
-3. **三模块日志导出 + 定位修改新增日志**。新包 `observelog/`（已加进 `sync-to-public.sh` 的
-   `SYNC_DIRS`）：共用的 `ObserveLogExport`（转发/保存到下载目录）、`WebToolObserveLog` 及其查看器。
-   定位修改的日志按钮在右下角，界面是盖在 WebView 上的 ComposeView 叠层。
+**包名**：私人版 `li.songe.gkd`/`li.songe.gkd.taiclear` → **`com.guixing`**；
+公开版 applicationId → **`com.guixingkeji`**。⚠️ **两边的源码包名故意都是 `com.guixing`**，
+只有 applicationId 不同——这样共用代码逐字节相同，`sync-to-public.sh` 不必在复制时改写
+package/import 行。**谁要动任何一边的 namespace，先看该脚本开头的前置检查注释。**
 
-验收条目已固化进 `docs/CHECKLIST.md`（第 0 节「关于」黑字、第 1 节 schema v3 落盘验证、
-第 2 节模糊度默认 100%、**新增的第 5.5 节整节**讲日志导出与定位修改叠层），以后回归照走即可。
+applicationId 变了意味着系统当成全新应用，数据目录跟着变。私人版的旧数据已用 adb 整目录
+备份到 `F:\backup\taiclear-data-20260910\` 并推回新目录（提词器文稿/订阅/数据库/玻璃预设全部还原）。
+
+**配色**：同一个"猜表面颜色"的根因在这个项目里摔了四次（详见 PITFALLS 同名条目）。已收敛成
+`glassui/GlassBackgroundAdjust.kt` 里唯一一份 `glassForegroundOver()`，外加
+`glassContentColorOn(base, target)` 供玻璃面直接用，七屏全部接上，补了 6 个单元测试。
+关键区分：**同一屏里「页面背景上的前景色」和「玻璃面上的前景色」是两回事**，不能整屏统一提供一个。
+
+同批还修了：背景编辑器五个滑块跑到面板底部（Column 闭合括号位置错了）、色块描边和系统状态栏
+图标同样跟着前景色走。
+
+**验收状态**：私人版七屏已真机验收（纯黑和纯白两种背景各测一遍）；公开版已装机、能启动、
+三张卡片正确，但功能未测。
 
 ## GKD 误点癸星启动页（2026-09-06 ✅ 已解决）
 
@@ -83,8 +88,11 @@
 
 ## 待办（按优先级）
 
-1. **本轮三项改动的真机验收**（见上）。
-2. **在原版 GKD 里排除癸星**（见上）。
+1. **公开版三个功能的真机验收**：已装机、能启动、三张卡片正确，但功能一次都没点过。
+   只验了编译、合并清单（`package="com.guixingkeji.debug"`、authority 跟随）、APK 符号（旧包名 0 命中）。
+2. **Shizuku 链路改包名后未验证**：AIDL 描述符（`com.guixing.shizuku.IUserService`）和
+   user service 绑定没测到——2026-09-10 和 09-11 两次尝试时设备上 Shizuku 都没运行
+   （应用装着，`moe.shizuku.privileged.api`，但进程没起）。下次 Shizuku 可用时补验。
 3. **验收 A：三页断行逐字符一致，从未执行**。需要真机取三个模式的 `TextLayoutResult`，
    `getLineStart`/`getLineEnd` 全量 dump 做 diff。JVM 侧做不了（没有 Robolectric，
    `ui-test-junit4` 只在 androidTest）——是构不出 TextLayoutResult，不是偷懒。
@@ -101,26 +109,17 @@
 
 **已停止投入**：提词器正文滑块拖动卡顿——两轮修复后用户验收为"能用，不再深究"，不要再碰。
 
-## 待办
-
-- ~~公开版改包名~~ **已完成（2026-09-11）**：公开版 applicationId 改成 `com.guixingkeji`，
-  但**源码包名跟私人版一样是 `com.guixing`**——刻意的，这样共用代码仍逐字节相同，
-  `sync-to-public.sh` 不用改造成"复制时改写 package/import 行"。配色修复已同步过去并编译验证，
-  `--check` 通过。⚠️ 以后谁要动任何一边的 namespace，先看 `sync-to-public.sh` 开头的前置检查注释。
-- **公开版改名后没做真机验收**：只验证了编译、合并清单（`package="com.guixingkeji.debug"`、
-  authority 正确跟随）和 APK 符号（旧包名 0 命中）。三个功能在真机上都没点过。
-- **Shizuku 相关功能在改包名后尚未真机验证**：2026-09-10 验收时设备上 Shizuku 没运行，
-  AIDL 描述符（`com.guixing.shizuku.IUserService`）和 user service 绑定这条链路**没测到**。
-  下次 Shizuku 可用时补验一次。
-
 ## 已知但未修的问题
 
-- **手机上同时装着两个 GKD**：`li.songe.gkd`（上游原版，陈旧，不可调试，**无障碍服务是它在跑**）
-  和 `com.guixing.debug`（当前开发的癸星，2026-09-10 前叫 `li.songe.gkd.taiclear.debug`）。
-  用户明确表示暂不处理。**`adb` 命令里包名不能简写**，务必确认操作的是 `com.guixing.debug`。
-  ⚠️ 改包名前装的那个 `li.songe.gkd.taiclear.debug` 不会被覆盖安装，会作为第三个应用留在机上，
-  它的数据目录里还存着改名前的提词器文稿/订阅/数据库——确认迁移完成前不要卸载它。
-  上面那条误点 bug 就是这两个共存导致的。
+- **上游原版 GKD 已从手机上卸载**（2026-09-11 用户自行清理，旧的 `li.songe.gkd.taiclear.debug`
+  和 `li.songe.gkd.guiyue.debug` 也一并清了）。上面那条「GKD 误点癸星启动页」的触发条件因此
+  暂时不存在，但**根因不在癸星代码里**，哪天再装回上游 GKD 就会复发，所以那一节保留。
+  现在机上只有 `com.guixing.debug`（私人版）和 `com.guixingkeji.debug`（公开版）。
+  ⚠️ **`com.guixing` 是 `com.guixingkeji` 的字符串前缀**，所以
+  `pm list packages | grep com.guixing` 会**同时命中两个包**，`pidof`、`am force-stop` 之类
+  也一样容易误伤。筛选时用完整包名或加 `.debug` 后缀，别用前缀匹配。
+- **装机必须带 `--user 0`**：这台机器有三星分身空间（`pm list users` 里的 `95:DUAL_APP`），
+  `adb install` 默认装进所有用户空间，会在分身里多出一个应用。详见 PITFALLS 同名条目。
 
 ## 环境
 
@@ -131,7 +130,8 @@ SDK        F:\android_sdk        adb  F:\android_sdk\platform-tools\adb.exe
 产物       app/build/outputs/apk/gkd/debug/app-gkd-debug.apk
 交付       cp 到 F:\apk-out\癸星.apk（私人版）/ 癸星科技.apk（公开版）
            文件名不带版本号、不带日期——版本在应用「关于」页里看
-真机       R5CY2195QED（三星 S25 Ultra），包名 com.guixing.debug
+真机       R5CY2195QED（三星 S25 Ultra），私人版 com.guixing.debug / 公开版 com.guixingkeji.debug
+装机       adb install -r --user 0 <apk>   —— --user 0 不能省，见「已知但未修的问题」
 ```
 
 ⚠️ **`adb` 默认是连不上的，这是正常状态，不是故障。** 用户平时要正常使用这台手机，所以**数据线
