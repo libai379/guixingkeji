@@ -60,9 +60,12 @@ plugins {
 }
 
 android {
-    namespace = "li.songe.gkd"
+    // namespace（源码包名）跟私人版**故意保持一致**：两个工程的共用代码因此仍然逐字节相同，
+    // sync-to-public.sh 不需要在复制时改写 package/import 行。用户看到的应用身份由下面的
+    // applicationId 区分，AGP 本来就允许这两者不同。
+    namespace = "com.guixing"
     defaultConfig {
-        applicationId = "li.songe.gkd.guiyue"
+        applicationId = "com.guixingkeji"
         versionCode = 92
         versionName = "1.12.1"
 

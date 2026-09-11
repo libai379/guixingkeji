@@ -16,9 +16,15 @@
 | | 私人版 | 公开版 |
 |---|---|---|
 | 路径 | `F:\guixing` | `F:\guixingkeji`（**本仓库**） |
-| applicationId | `li.songe.gkd.taiclear` | `li.songe.gkd.guiyue` |
+| applicationId | `com.guixing` | `com.guixingkeji` |
+| 源码包名 | `com.guixing` | `com.guixing`（**故意与私人版相同**，见下） |
 | 功能 | 5 个全有 | 定位修改 / 提词器 / 电话拦截 |
 | git | 原有完整历史 | 全新仓库，**故意不带私人版历史** |
+
+⚠️ **两边的源码包名（namespace）是刻意保持一致的**，只有 applicationId 不同。这不是没改干净：
+包名一致 → 共用代码逐字节相同 → `sync-to-public.sh` 只需按相对路径复制，不必在复制时改写
+package/import 行，一致性检查（`--check`）也能直接逐字节比对。**谁要动任何一边的 namespace，
+先去看 `sync-to-public.sh` 开头那段前置检查的注释**，那里写了改了之后同步机制要付出什么代价。
 
 公开版把**去广告（整个 GKD 上游内核）和虚拟定位物理删除**了，不是隐藏——源码、清单组件、权限、
 依赖全摘干净（权限 20→7，体积 34.0→28.4MB，dex 里搜不到相关符号）。**不带 .git 是有意的**：历史
