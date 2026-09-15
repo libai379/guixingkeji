@@ -7,7 +7,7 @@
 > ——那次膨胀直接造成过一次真实的排查弯路（详见 `PITFALLS.md`「必读文件过长本身是个 bug」）。
 > **写进来之前先问：这句话描述的是"现在的状态"，还是"当时发生的事"？后者不属于这里。**
 
-更新时间：2026-09-11。
+更新时间：2026-09-15。
 
 ## 下次开发第一件事
 
@@ -69,7 +69,7 @@ applicationId 变了意味着系统当成全新应用，数据目录跟着变。
 ②改掉启动页卡片副标题里的"跳过"二字，对任何广告跳过类应用都免疫（用户这次没选）。
 先查 `enabled_accessibility_services` 确认是谁在点，别默认是癸星自己。
 
-## 五个功能各自进度
+## 六个功能各自进度
 
 **去广告**（GKD 上游，仅私人版）：代码未改动。上面那条误点已解决，且根因不在本应用。
 
@@ -85,6 +85,30 @@ applicationId 变了意味着系统当成全新应用，数据目录跟着变。
 **电话拦截**（`callscreen/`）：雏形阶段验收已全部走完（角色申请、黑白名单互斥、真实拦截生效、
 返回键导航）。`setSkipCallLog(true)` 实测不生效，**用户确认这是期望行为，不是 bug**。
 全局总开关默认关闭；规则列表为空时两个模式都放行（白名单空会拦截全部来电，漏接不可逆）。
+
+**反跟踪自查**（`antitrack/` + `assets/ioc/`，仅私人版，2026-09-12 起）：第 1 步（IOC 比对 +
+结果页 + 导出报告）已验收通过。指标库来自 AssoEchap/stalkerware-indicators（CC BY 4.0），
+147 家族 / 613 包名 / 471 证书，由 `tools/build_ioc_json.py` 从上游 ioc.yaml 转成 assets JSON。
+结果页刻意**不做** App 内禁用/卸载/掐权限，只跳系统页面——这批数据误报率注定不低
+（家长监护类应用在库、签名轮换、侧载里大量是用户自己装的），一键操作迟早误杀。
+
+四条系统页面跳转 2026-09-15 在 SM-S938U / Android 15 / One UI 7.0 全部实测通过：
+
+- 应用详情、无障碍设置：走标准公开 Action，早先已验。
+- **设备管理器**：SDK 里没有列表页的公开 Action（`DevicePolicyManager` 只有
+  `ACTION_ADD_DEVICE_ADMIN`，那是申请授权不是列表），只能写死组件名
+  `com.android.settings/.Settings$DeviceAdminSettingsActivity`。实测落到「设备管理应用程序」。
+- **用户 CA 证书**：`Settings.ACTION_TRUSTED_CREDENTIALS_USER` 在 SDK 源码里存在但标了
+  `@hide`，引用不到常量，把 action 字符串写死。实测落到「查看安全证书」且**直接停在「用户」页签**。
+- 两条都跟了 `ACTION_SECURITY_SETTINGS` 作兜底（它只能到「安全与隐私」总页，用户还得翻几层，
+  所以只当退路）。实测首选 Intent 直接命中，AntiTrack 日志里没有 fallback 记录。
+
+⚠️ 验证方法上有个坑值得记：本机设备管理器和用户 CA 都是 0 个，列表里点不到，
+只能加临时调试入口脱离列表单独验。而**光用 `adb shell am start` 验是不够的**——
+shell 可能持有 `START_ANY_ACTIVITY` 从而绕过 exported 检查，测通了也不代表普通应用能开。
+这次专门做了对照实验坐实前提：`dumpsys package com.android.shell` 确认未持有该权限，
+且同一个 shell 去开本应用 `exported=false` 的 Activity 会被 `checkStartAnyActivityPermission`
+拒掉（SecurityException: not exported from uid 10617）。之后又从 App 进程里真点了一遍。
 
 ## 待办（按优先级）
 

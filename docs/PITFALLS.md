@@ -973,3 +973,49 @@ Edit 工具是所见即所得，没有这一层。
 2. **加仪表之前先确认症状是真的。** 准备加日志时是个很好的自检点——
    如果连"症状存在"都没验证，加再多日志也是在测量一个不存在的东西。
 3. 最快的验证往往是**直接试那个交互**（点一下展开按钮），而不是绕道分析布局代码。
+
+## `adb shell` 里的 `$` 会被**设备端** shell 再展开一次 —— 组件名被悄悄吃掉
+
+**现象**（2026-09-15，验证反跟踪的系统页面跳转）：要直开设备管理器列表页，执行
+
+    adb shell am start -n 'com.android.settings/.Settings$DeviceAdminSettingsActivity'
+
+外层用了单引号，本机 bash 确实没展开。但回显是 `Starting: Intent { cmp=com.android.settings/.Settings }`
+—— `$DeviceAdminSettingsActivity` 变成了空串，命令却**成功了**，只是打开了另一个页面。
+
+**原因**：`adb shell <cmd>` 不是把参数直接交给目标进程，而是把它拼成一行丢给**设备上的 sh**
+再解释一次。本机的引号只挡住了本机那层，管不到设备那层。
+
+**正确写法**：对设备端 shell 再转义一次 —— `'...Settings\$DeviceAdminSettingsActivity'`。
+
+**为什么危险**：它不报错。变量展开成空串后命令依然合法、依然"成功"，
+只有回显里的 `cmp=` 或前台 Activity 能看出跑的根本不是你要的东西。
+**凡是 `adb shell` 命令里带 `$`（Settings 的 `Settings$XxxActivity` 别名全是这种），
+执行后都要回读 `cmp=` 或 `dumpsys activity activities | grep topResumedActivity` 确认目标。**
+
+这和已有的那条「Git Bash 会改写 adb 的远端绝对路径」是同一类问题：
+**adb 命令要穿过两层 shell，两层都会动你的字符串。**
+
+## `adb shell am start` 测通系统页面，不等于普通应用也能打开
+
+**背景**（2026-09-15）：反跟踪结果页要跳「设备管理器」和「用户 CA 证书」。
+前者在 SDK 里**没有**公开 Action，只能写死组件名；写死组件名就必须确认它对普通应用
+`exported=true`，否则线上会抛 SecurityException。
+
+**陷阱**：直觉是"用 adb 起一下，能开就说明能开"。但 `adb shell` 的 uid 是 2000，
+如果它持有 `android.permission.START_ANY_ACTIVITY`，就会**绕过 exported 检查**，
+测通了也推不出普通应用能开 —— 这是个会把假阳性带到线上的验证方法。
+
+**怎么坐实前提**（两步，缺一不可）：
+
+1. `adb shell dumpsys package com.android.shell` 确认没有 `START_ANY_ACTIVITY`。
+   顺带确认这份 dump 里**确实列了权限**（grep 一下已知权限），否则 grep 不到可能只是 dump 是空的。
+2. **做对照实验**：拿一个确定 `exported=false` 的 Activity（本应用的就行），
+   用同一个 adb shell 去开，必须被拒。本次实测拒绝信息是
+   `SecurityException: Permission Denial: ... not exported from uid 10617`，
+   栈顶是 `ActivityTaskSupervisor.checkStartAnyActivityPermission` —— 这才证明这条检查是活的。
+
+对照实验通过之后，"shell 能开"才等价于"exported=true，普通应用也能开"。
+
+**更一般的教训**：用特权工具去验证非特权代码的可行性时，
+先证明这个工具**在这件事上没有特权**，否则整个验证是空的。
