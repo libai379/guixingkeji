@@ -90,9 +90,13 @@ applicationId 变了意味着系统当成全新应用，数据目录跟着变。
 
 1. **公开版三个功能的真机验收**：已装机、能启动、三张卡片正确，但功能一次都没点过。
    只验了编译、合并清单（`package="com.guixingkeji.debug"`、authority 跟随）、APK 符号（旧包名 0 命中）。
-2. **Shizuku 链路改包名后未验证**：AIDL 描述符（`com.guixing.shizuku.IUserService`）和
-   user service 绑定没测到——2026-09-10 和 09-11 两次尝试时设备上 Shizuku 都没运行
-   （应用装着，`moe.shizuku.privileged.api`，但进程没起）。下次 Shizuku 可用时补验。
+2. ~~Shizuku 链路改包名后未验证~~ **已验证通过（2026-09-12）**。
+   ⚠️ 这条待办原来的描述是**错的**：它写成「AIDL 描述符和 user service 绑定没测到」，
+   暗示链路是活的只是没测；实际当时 `ShizukuApi` 里 `serviceWrapper` 写死 null、
+   `buildServiceWrapper()` 零调用点，**这条链路根本没接通**，跟改包名毫无关系。
+   接回来（commit 115121f9）后真机实测：绑定一次成功，`IUserService$Stub$Proxy` 的包名
+   已是 `com.guixing`，**改包名后 AIDL 描述符正常工作，无不匹配**；
+   `cmd appops` 三条命令全部 code=0，输出与 adb shell 逐行一致（抹掉相对时间数值后）。
 3. **验收 A：三页断行逐字符一致，从未执行**。需要真机取三个模式的 `TextLayoutResult`，
    `getLineStart`/`getLineEnd` 全量 dump 做 diff。JVM 侧做不了（没有 Robolectric，
    `ui-test-junit4` 只在 androidTest）——是构不出 TextLayoutResult，不是偷懒。
