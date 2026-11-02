@@ -1,7 +1,7 @@
 # 癸星科技
 
 一个安卓工具应用，把几件平时零散要用的事整合到一起：照片视频定位修改、提词器、电话拦截。
-基于开源项目 [GKD](https://github.com/gkd-kit/gkd) 二次开发，界面用 Jetpack Compose 做了一套液态玻璃风格。
+界面用 Jetpack Compose 做了一套液态玻璃风格。
 
 ## 欢迎参考学习
 
